@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Manages backups of modsettings.lsx before making changes.
 final class BackupService {
@@ -101,29 +102,43 @@ final class BackupService {
     // MARK: - File Locking
 
     /// Lock modsettings.lsx to prevent the game from overwriting it.
-    func lockModSettings() {
-        lockFile(at: FileLocations.modSettingsFile)
+    @discardableResult
+    func lockModSettings() -> Bool {
+        return setImmutable(true, at: FileLocations.modSettingsFile)
     }
 
     /// Unlock modsettings.lsx so it can be modified.
-    func unlockModSettings() {
-        unlockFile(at: FileLocations.modSettingsFile)
+    @discardableResult
+    func unlockModSettings() -> Bool {
+        return setImmutable(false, at: FileLocations.modSettingsFile)
     }
 
-    private func lockFile(at url: URL) {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        var resourceValues = URLResourceValues()
-        resourceValues.isUserImmutable = true
-        var mutableURL = url
-        try? mutableURL.setResourceValues(resourceValues)
+    /// Returns true if modsettings.lsx is currently locked.
+    func isModSettingsLocked() -> Bool {
+        let path = FileLocations.modSettingsFile.path
+        var statBuf = stat()
+        guard stat(path, &statBuf) == 0 else { return false }
+        return (statBuf.st_flags & UInt32(UF_IMMUTABLE)) != 0
     }
 
-    private func unlockFile(at url: URL) {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        var resourceValues = URLResourceValues()
-        resourceValues.isUserImmutable = false
-        var mutableURL = url
-        try? mutableURL.setResourceValues(resourceValues)
+    private func setImmutable(_ immutable: Bool, at url: URL) -> Bool {
+        let path = url.path
+        guard FileManager.default.fileExists(atPath: path) else { return false }
+
+        // Get current flags
+        var statBuf = stat()
+        guard stat(path, &statBuf) == 0 else { return false }
+
+        // Set or clear the user immutable flag
+        var newFlags = statBuf.st_flags
+        if immutable {
+            newFlags |= UInt32(UF_IMMUTABLE)
+        } else {
+            newFlags &= ~UInt32(UF_IMMUTABLE)
+        }
+
+        let result = Darwin.chflags(path, newFlags)
+        return result == 0
     }
 
     // MARK: - Errors
