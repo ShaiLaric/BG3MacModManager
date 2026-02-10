@@ -10,10 +10,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "BG3MacModManager",
-            path: "Sources/BG3MacModManager",
-            swiftSettings: [
-                .unsafeFlags(["-Xfrontend", "-enable-upcoming-feature", "StrictConcurrency"], .when(configuration: .debug))
-            ]
+            path: "Sources/BG3MacModManager"
         ),
         .testTarget(
             name: "BG3MacModManagerTests",
