@@ -2,22 +2,22 @@
 
 A native macOS application for managing Baldur's Gate 3 mods, inspired by [LaughingLeader's BG3 Mod Manager](https://github.com/LaughingLeader/BG3ModManager) for Windows.
 
-Built with Swift and SwiftUI, this tool provides a first-class macOS experience for installing, organizing, and managing BG3 mods — including full integration with [bg3se-macos](https://github.com/tdimino/bg3se-macos) (Script Extender for macOS).
+Built with Swift and SwiftUI, this tool provides a first-class macOS experience for installing, organizing, and managing BG3 mods - including full integration with [bg3se-macos](https://github.com/tdimino/bg3se-macos) (Script Extender for macOS).
 
 ## Features
 
 ### Mod Management
-- **Discover & import mods** — scans your Mods folder and imports `.pak` files (or ZIPs containing them)
-- **Drag-and-drop load order** — reorder active mods to control load priority
-- **Activate / deactivate** — toggle mods between active and inactive with a click
-- **Rich metadata** — displays name, author, version, description, UUID, dependencies, and tags parsed from `info.json` or `meta.lsx` inside `.pak` files
-- **Dependency warnings** — flags mods with missing dependencies
-- **Search & filter** — find mods by name, author, folder, or tags
+- **Discover & import mods**: scans your Mods folder and imports `.pak` files (or ZIPs containing them)
+- **Drag-and-drop load order**: reorder active mods to control load priority
+- **Activate / deactivate**: toggle mods between active and inactive with a click
+- **Rich metadata**: displays name, author, version, description, UUID, dependencies, and tags parsed from `info.json` or `meta.lsx` inside `.pak` files
+- **Dependency warnings**: flags mods with missing dependencies
+- **Search & filter**: find mods by name, author, folder, or tags
 
 ### PAK File Reading
-- **Native LSPK v18 reader** — reads Larian's proprietary `.pak` archive format directly, with no external tools
-- **Extracts `meta.lsx`** — parses mod metadata from inside `.pak` files when `info.json` isn't available
-- **LZ4 & Zlib decompression** — handles both Solid and non-Solid compressed archives using macOS's built-in Compression framework
+- **Native LSPK v18 reader**: reads Larian's proprietary `.pak` archive format directly, with no external tools
+- **Extracts `meta.lsx`**: parses mod metadata from inside `.pak` files when `info.json` isn't available
+- **LZ4 & Zlib decompression**: handles both Solid and non-Solid compressed archives using macOS's built-in Compression framework
 
 ### modsettings.lsx Management
 - **Reads & writes** the game's `modsettings.lsx` configuration file
@@ -31,15 +31,15 @@ Built with Swift and SwiftUI, this tool provides a first-class macOS experience 
 - **Import / export** profiles as JSON for sharing with others
 
 ### Script Extender Integration
-- **Status detection** — checks if `bg3se-macos` is installed and deployed
-- **SE mod flagging** — identifies mods that require the Script Extender (by detecting `ScriptExtender/Config.json` inside `.pak` files)
-- **Installation guide** — provides step-by-step instructions for installing bg3se-macos
-- **Log viewer** — read SE logs directly from the app
-- **Debug options** — documents `BG3SE_NO_HOOKS`, `BG3SE_NO_NET`, `BG3SE_MINIMAL` environment variables
+- **Status detection**: checks if `bg3se-macos` is installed and deployed
+- **SE mod flagging**: identifies mods that require the Script Extender (by detecting `ScriptExtender/Config.json` inside `.pak` files)
+- **Installation guide**: provides step-by-step instructions for installing bg3se-macos
+- **Log viewer**: read SE logs directly from the app
+- **Debug options**: documents `BG3SE_NO_HOOKS`, `BG3SE_NO_NET`, `BG3SE_MINIMAL` environment variables
 
 ### Game Launch
 - **Launch BG3** directly from the app via Steam
-- **Quick access** — open Mods folder, modsettings.lsx, or SE logs in Finder
+- **Quick access**: open Mods folder, modsettings.lsx, or SE logs in Finder
 
 ## Requirements
 
@@ -129,12 +129,12 @@ Sources/BG3MacModManager/
 
 ### Load Order
 - The `ModOrder` section of `modsettings.lsx` defines which mods load and in what order
-- **Last loaded wins** for conflicting changes — mods later in the list override earlier ones
+- **Last loaded wins** for conflicting changes - mods later in the list override earlier ones
 - `GustavDev` (the base game module) is always preserved as the first entry
 
 ### macOS-Specific Notes
 - Only `.pak`-based mods work on macOS (no DLL/native mods)
-- The Mods directory must be flat — no subdirectories (the game resets `modsettings.lsx` otherwise)
+- The Mods directory must be flat - no subdirectories (the game resets `modsettings.lsx` otherwise)
 - File locking via `chflags uchg` prevents the game from overwriting your settings
 
 ## Contributing
@@ -147,7 +147,7 @@ This project is open source. See the LICENSE file for details.
 
 ## Acknowledgments
 
-- [LaughingLeader/BG3ModManager](https://github.com/LaughingLeader/BG3ModManager) — the original Windows BG3 Mod Manager
-- [tdimino/bg3se-macos](https://github.com/tdimino/bg3se-macos) — Script Extender for macOS
-- [Norbyte/lslib](https://github.com/Norbyte/lslib) — reference for LSPK format and LSX parsing
-- [BG3 Modding Wiki](https://bg3.wiki/wiki/Modding:Installing_mods) — modding documentation
+- [LaughingLeader/BG3ModManager](https://github.com/LaughingLeader/BG3ModManager) - the original Windows BG3 Mod Manager
+- [tdimino/bg3se-macos](https://github.com/tdimino/bg3se-macos) - Script Extender for macOS
+- [Norbyte/lslib](https://github.com/Norbyte/lslib) - reference for LSPK format and LSX parsing
+- [BG3 Modding Wiki](https://bg3.wiki/wiki/Modding:Installing_mods) - modding documentation
