@@ -1,0 +1,135 @@
+import SwiftUI
+
+struct ContentView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var selectedSidebarItem: SidebarItem = .mods
+
+    enum SidebarItem: String, CaseIterable, Identifiable {
+        case mods = "Mods"
+        case profiles = "Profiles"
+        case backups = "Backups"
+        case scriptExtender = "Script Extender"
+
+        var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .mods: return "puzzlepiece.extension"
+            case .profiles: return "person.2"
+            case .backups: return "clock.arrow.circlepath"
+            case .scriptExtender: return "terminal"
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationSplitView {
+            sidebar
+        } detail: {
+            detailView
+        }
+        .toolbar {
+            toolbarContent
+        }
+        .alert("Error", isPresented: $appState.showError, presenting: appState.errorMessage) { _ in
+            Button("OK") { appState.showError = false }
+        } message: { message in
+            Text(message)
+        }
+        .overlay(alignment: .bottom) {
+            statusBar
+        }
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        List(SidebarItem.allCases, selection: $selectedSidebarItem) { item in
+            Label(item.rawValue, systemImage: item.icon)
+                .tag(item)
+        }
+        .listStyle(.sidebar)
+        .frame(minWidth: 180)
+    }
+
+    // MARK: - Detail View
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selectedSidebarItem {
+        case .mods:
+            ModListView()
+        case .profiles:
+            ProfileManagerView()
+        case .backups:
+            BackupManagerView()
+        case .scriptExtender:
+            SEStatusView()
+        }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                Task { await appState.saveModSettings() }
+            } label: {
+                Label("Save", systemImage: "square.and.arrow.down")
+            }
+            .help("Save mod order to modsettings.lsx")
+
+            Button {
+                Task { await appState.refreshAll() }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .help("Rescan mods folder")
+
+            Button {
+                appState.launchGame()
+            } label: {
+                Label("Launch Game", systemImage: "play.fill")
+            }
+            .help("Launch Baldur's Gate 3")
+        }
+
+        ToolbarItem(placement: .navigation) {
+            Button {
+                appState.launchService.openModsFolder()
+            } label: {
+                Label("Open Mods Folder", systemImage: "folder")
+            }
+            .help("Open Mods folder in Finder")
+        }
+    }
+
+    // MARK: - Status Bar
+
+    private var statusBar: some View {
+        HStack {
+            if appState.isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Text(appState.statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            if let se = appState.seStatus {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(se.isInstalled ? Color.green : Color.gray)
+                        .frame(width: 8, height: 8)
+                    Text(se.isInstalled ? "SE Active" : "SE Not Found")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+}
