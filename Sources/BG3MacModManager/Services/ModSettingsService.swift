@@ -110,15 +110,15 @@ final class ModSettingsService {
     func write(activeMods: [ModInfo]) throws {
         var settings = ModSettings(modOrder: [], mods: [:])
 
-        // Ensure GustavDev is always first
-        let gustavDev = ModInfo.gustavDev
-        settings.modOrder.append(gustavDev.uuid)
-        settings.mods[gustavDev.uuid] = ModuleShortDesc(
-            folder: gustavDev.folder,
-            md5: gustavDev.md5,
-            name: gustavDev.name,
-            uuid: gustavDev.uuid,
-            version64: String(gustavDev.version64)
+        // Ensure base game module (GustavX) is always first
+        let baseModule = ModInfo.baseGameModule
+        settings.modOrder.append(baseModule.uuid)
+        settings.mods[baseModule.uuid] = ModuleShortDesc(
+            folder: baseModule.folder,
+            md5: baseModule.md5,
+            name: baseModule.name,
+            uuid: baseModule.uuid,
+            version64: String(baseModule.version64)
         )
 
         // Add remaining mods in order
@@ -139,60 +139,58 @@ final class ModSettingsService {
     // MARK: - XML Generation
 
     private func generateXML(_ settings: ModSettings) -> String {
-        var xml = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <save>
-          <version major="4" minor="7" revision="1" build="3"/>
-          <region id="ModuleSettings">
-            <node id="root">
-              <children>
-                <node id="ModOrder">
-                  <children>
+        let i1 = "    "      // 1 level indent
+        let i2 = "        "  // 2 levels
+        let i3 = "            " // 3 levels
+        let i4 = "                " // 4 levels
+        let i5 = "                    " // 5 levels
+        let i6 = "                        " // 6 levels
 
-        """
+        var lines: [String] = []
+        lines.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+        lines.append("<save>")
+        lines.append("\(i1)<version major=\"4\" minor=\"8\" revision=\"0\" build=\"500\"/>")
+        lines.append("\(i1)<region id=\"ModuleSettings\">")
+        lines.append("\(i2)<node id=\"root\">")
+        lines.append("\(i3)<children>")
 
+        // ModOrder section
+        lines.append("\(i4)<node id=\"ModOrder\">")
+        lines.append("\(i5)<children>")
         for uuid in settings.modOrder {
-            xml += """
-                            <node id="Module">
-                              <attribute id="UUID" value="\(uuid)" type="FixedString"/>
-                            </node>\n
-            """
+            lines.append("\(i6)<node id=\"Module\">")
+            lines.append("\(i6)    <attribute id=\"UUID\" type=\"guid\" value=\"\(uuid)\"/>")
+            lines.append("\(i6)</node>")
         }
+        lines.append("\(i5)</children>")
+        lines.append("\(i4)</node>")
 
-        xml += """
-                  </children>
-                </node>
-                <node id="Mods">
-                  <children>
+        // Mods section
+        lines.append("\(i4)<node id=\"Mods\">")
+        lines.append("\(i5)<children>")
 
-        """
-
-        // Write mods in the same order as modOrder, then any extras
         let orderedUUIDs = settings.modOrder + settings.mods.keys.filter { !settings.modOrder.contains($0) }
 
         for uuid in orderedUUIDs {
             guard let mod = settings.mods[uuid] else { continue }
-            xml += """
-                            <node id="ModuleShortDesc">
-                              <attribute id="Folder" value="\(escapeXML(mod.folder))" type="LSString"/>
-                              <attribute id="MD5" value="\(escapeXML(mod.md5))" type="LSString"/>
-                              <attribute id="Name" value="\(escapeXML(mod.name))" type="LSString"/>
-                              <attribute id="UUID" value="\(mod.uuid)" type="FixedString"/>
-                              <attribute id="Version64" value="\(mod.version64)" type="int64"/>
-                            </node>\n
-            """
+            lines.append("\(i6)<node id=\"ModuleShortDesc\">")
+            lines.append("\(i6)    <attribute id=\"Folder\" type=\"LSString\" value=\"\(escapeXML(mod.folder))\"/>")
+            lines.append("\(i6)    <attribute id=\"MD5\" type=\"LSString\" value=\"\(escapeXML(mod.md5))\"/>")
+            lines.append("\(i6)    <attribute id=\"Name\" type=\"LSString\" value=\"\(escapeXML(mod.name))\"/>")
+            lines.append("\(i6)    <attribute id=\"PublishHandle\" type=\"uint64\" value=\"0\"/>")
+            lines.append("\(i6)    <attribute id=\"UUID\" type=\"guid\" value=\"\(mod.uuid)\"/>")
+            lines.append("\(i6)    <attribute id=\"Version64\" type=\"int64\" value=\"\(mod.version64)\"/>")
+            lines.append("\(i6)</node>")
         }
 
-        xml += """
-                  </children>
-                </node>
-              </children>
-            </node>
-          </region>
-        </save>
-        """
+        lines.append("\(i5)</children>")
+        lines.append("\(i4)</node>")
+        lines.append("\(i3)</children>")
+        lines.append("\(i2)</node>")
+        lines.append("\(i1)</region>")
+        lines.append("</save>")
 
-        return xml
+        return lines.joined(separator: "\n")
     }
 
     private func escapeXML(_ string: String) -> String {

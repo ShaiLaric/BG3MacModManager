@@ -143,7 +143,9 @@ final class AppState: ObservableObject {
     func saveModSettings() async {
         do {
             // Create backup first
-            try backupService.backupModSettings()
+            if FileLocations.modSettingsExists {
+                try backupService.backupModSettings()
+            }
 
             // Unlock if locked
             backupService.unlockModSettings()
@@ -151,10 +153,14 @@ final class AppState: ObservableObject {
             // Write new settings
             try modSettingsService.write(activeMods: activeMods)
 
-            // Optionally lock to prevent game from overwriting
-            backupService.lockModSettings()
+            // Lock to prevent game from overwriting
+            let locked = backupService.lockModSettings()
 
-            statusMessage = "Saved \(activeMods.count) mods to modsettings.lsx"
+            if locked {
+                statusMessage = "Saved \(activeMods.count) mods to modsettings.lsx (locked)"
+            } else {
+                statusMessage = "Saved \(activeMods.count) mods to modsettings.lsx (WARNING: lock failed)"
+            }
             await refreshBackups()
         } catch {
             showError(error)
@@ -326,6 +332,7 @@ final class AppState: ObservableObject {
         let activeUUIDs = Set(activeMods.map(\.uuid))
         return mod.dependencies.filter { dep in
             !activeUUIDs.contains(dep.uuid) &&
+            dep.uuid != Constants.baseModuleUUID &&
             dep.uuid != Constants.gustavDevUUID
         }
     }
