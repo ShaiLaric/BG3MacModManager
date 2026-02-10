@@ -48,6 +48,7 @@ struct SettingsView: View {
                     try? appState.backupService.pruneBackups(olderThanDays: backupRetentionDays)
                     Task { await appState.refreshBackups() }
                 }
+                .help("Delete backups older than the retention period")
             }
 
             Section("Game") {

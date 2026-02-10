@@ -153,9 +153,11 @@ struct SEStatusView: View {
                             logContent = appState.seService.readLatestLog()
                             showingLog = true
                         }
+                        .help("Display the most recent SE log inline")
                         Button("Open Logs Folder") {
                             appState.launchService.openSELogs()
                         }
+                        .help("Open SE logs folder in Finder")
                     }
 
                     if showingLog, let content = logContent {

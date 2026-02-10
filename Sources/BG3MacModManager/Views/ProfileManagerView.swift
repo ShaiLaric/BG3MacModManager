@@ -17,11 +17,13 @@ struct ProfileManagerView: View {
                 Button("Save Current...") {
                     showingSaveSheet = true
                 }
+                .help("Save current mod configuration as a profile")
                 Button {
                     importProfile()
                 } label: {
                     Label("Import", systemImage: "square.and.arrow.down")
                 }
+                .help("Import a profile from a JSON file")
             }
             .padding()
 
@@ -61,6 +63,7 @@ struct ProfileManagerView: View {
                         Task { await appState.loadProfile(profile) }
                     }
                     .buttonStyle(.borderedProminent)
+                    .help("Apply this profile's mod configuration")
 
                     Button {
                         exportProfile(profile)

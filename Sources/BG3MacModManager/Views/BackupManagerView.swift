@@ -17,6 +17,7 @@ struct BackupManagerView: View {
                 } label: {
                     Label("Create Backup", systemImage: "plus")
                 }
+                .help("Create a backup of modsettings.lsx")
             }
             .padding()
 
@@ -60,12 +61,14 @@ struct BackupManagerView: View {
                         selectedBackup = backup
                         showingRestoreConfirmation = true
                     }
+                    .help("Restore modsettings.lsx from this backup")
 
                     Button(role: .destructive) {
                         Task { await appState.deleteBackup(backup) }
                     } label: {
                         Image(systemName: "trash")
                     }
+                    .help("Delete this backup")
                 }
                 .padding(.vertical, 4)
             }
