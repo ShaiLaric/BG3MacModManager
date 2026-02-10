@@ -312,26 +312,38 @@ final class PakReader {
 
 extension Data {
     func readUInt16(at offset: Int) -> UInt16 {
-        let range = offset..<(offset + 2)
-        guard range.upperBound <= count else { return 0 }
-        return self[range].withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
+        guard offset + 2 <= count else { return 0 }
+        var value: UInt16 = 0
+        withUnsafeBytes { buf in
+            memcpy(&value, buf.baseAddress! + offset, 2)
+        }
+        return UInt16(littleEndian: value)
     }
 
     func readUInt32(at offset: Int) -> UInt32 {
-        let range = offset..<(offset + 4)
-        guard range.upperBound <= count else { return 0 }
-        return self[range].withUnsafeBytes { $0.load(as: UInt32.self).littleEndian }
+        guard offset + 4 <= count else { return 0 }
+        var value: UInt32 = 0
+        withUnsafeBytes { buf in
+            memcpy(&value, buf.baseAddress! + offset, 4)
+        }
+        return UInt32(littleEndian: value)
     }
 
     func readUInt64(at offset: Int) -> UInt64 {
-        let range = offset..<(offset + 8)
-        guard range.upperBound <= count else { return 0 }
-        return self[range].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
+        guard offset + 8 <= count else { return 0 }
+        var value: UInt64 = 0
+        withUnsafeBytes { buf in
+            memcpy(&value, buf.baseAddress! + offset, 8)
+        }
+        return UInt64(littleEndian: value)
     }
 
     func readInt64(at offset: Int) -> Int64 {
-        let range = offset..<(offset + 8)
-        guard range.upperBound <= count else { return 0 }
-        return self[range].withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+        guard offset + 8 <= count else { return 0 }
+        var value: Int64 = 0
+        withUnsafeBytes { buf in
+            memcpy(&value, buf.baseAddress! + offset, 8)
+        }
+        return Int64(littleEndian: value)
     }
 }

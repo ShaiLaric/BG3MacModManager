@@ -40,6 +40,7 @@ struct ModListView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .help("Bulk actions")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
