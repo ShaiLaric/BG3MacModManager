@@ -52,20 +52,20 @@ struct ModInfo: Identifiable, Codable, Equatable {
     }
 
     var isBasicGameModule: Bool {
-        uuid == Constants.gustavDevUUID
+        uuid == Constants.baseModuleUUID || uuid == Constants.gustavDevUUID
     }
 
     // MARK: - Factory Methods
 
-    /// Creates a ModInfo for the required GustavDev base game module.
-    static var gustavDev: ModInfo {
+    /// Creates a ModInfo for the required base game module (GustavX / GustavDev).
+    static var baseGameModule: ModInfo {
         ModInfo(
-            uuid: Constants.gustavDevUUID,
-            folder: "GustavDev",
-            name: "GustavDev",
+            uuid: Constants.baseModuleUUID,
+            folder: Constants.baseModuleFolder,
+            name: Constants.baseModuleName,
             author: "Larian Studios",
             modDescription: "Base game module (required)",
-            version64: Constants.gustavDevVersion64,
+            version64: Constants.baseModuleVersion64,
             md5: "",
             tags: [],
             dependencies: [],
@@ -121,8 +121,14 @@ enum MetadataSource: String, Codable {
 // MARK: - Constants
 
 enum Constants {
+    /// GustavX - the base game module (renamed from GustavDev in Patch 7+).
+    static let baseModuleUUID = "cb555efe-2d9e-131f-8195-a89329d218ea"
+    static let baseModuleFolder = "GustavX"
+    static let baseModuleName = "GustavX"
+    static let baseModuleVersion64: Int64 = 36028797018963968 // 1.0.0.0
+
+    /// Legacy GustavDev UUID (pre-Patch 7).
     static let gustavDevUUID = "28ac9ce2-2aba-8cda-b3b5-6e922f71b6b8"
-    static let gustavDevVersion64: Int64 = 145_100_779_997_082_624 // 36028797018963968 in some versions
 
     /// Steam App ID for BG3.
     static let steamAppID = "1086940"

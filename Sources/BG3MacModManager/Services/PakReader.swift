@@ -314,7 +314,7 @@ extension Data {
     func readUInt16(at offset: Int) -> UInt16 {
         guard offset + 2 <= count else { return 0 }
         var value: UInt16 = 0
-        withUnsafeBytes { buf in
+        _ = withUnsafeBytes { buf in
             memcpy(&value, buf.baseAddress! + offset, 2)
         }
         return UInt16(littleEndian: value)
@@ -323,7 +323,7 @@ extension Data {
     func readUInt32(at offset: Int) -> UInt32 {
         guard offset + 4 <= count else { return 0 }
         var value: UInt32 = 0
-        withUnsafeBytes { buf in
+        _ = withUnsafeBytes { buf in
             memcpy(&value, buf.baseAddress! + offset, 4)
         }
         return UInt32(littleEndian: value)
@@ -332,7 +332,7 @@ extension Data {
     func readUInt64(at offset: Int) -> UInt64 {
         guard offset + 8 <= count else { return 0 }
         var value: UInt64 = 0
-        withUnsafeBytes { buf in
+        _ = withUnsafeBytes { buf in
             memcpy(&value, buf.baseAddress! + offset, 8)
         }
         return UInt64(littleEndian: value)
@@ -341,7 +341,7 @@ extension Data {
     func readInt64(at offset: Int) -> Int64 {
         guard offset + 8 <= count else { return 0 }
         var value: Int64 = 0
-        withUnsafeBytes { buf in
+        _ = withUnsafeBytes { buf in
             memcpy(&value, buf.baseAddress! + offset, 8)
         }
         return Int64(littleEndian: value)
