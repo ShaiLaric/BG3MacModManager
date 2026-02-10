@@ -332,6 +332,7 @@ final class AppState: ObservableObject {
         let activeUUIDs = Set(activeMods.map(\.uuid))
         return mod.dependencies.filter { dep in
             !activeUUIDs.contains(dep.uuid) &&
+            dep.uuid != Constants.baseModuleUUID &&
             dep.uuid != Constants.gustavDevUUID
         }
     }
