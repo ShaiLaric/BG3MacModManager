@@ -18,5 +18,11 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 </dict>
 </plist>
