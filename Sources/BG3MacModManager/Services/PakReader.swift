@@ -192,26 +192,23 @@ final class PakReader {
         if compressedSize == expectedSize {
             // Data is not compressed
             entryData = compressedData
-        } else {
-            // Decompress - use LZ4 frame if Solid, raw LZ4 block otherwise
-            if header.isSolid {
-                guard let decompressed = decompress(compressedData, expectedSize: expectedSize, algorithm: COMPRESSION_LZ4) else {
-                    // Fall back to raw LZ4
-                    guard let rawDecompressed = decompress(compressedData, expectedSize: expectedSize, algorithm: COMPRESSION_LZ4_RAW) else {
-                        throw PakError.decompressionFailed
-                    }
-                    entryData = rawDecompressed
-                }
+        } else if header.isSolid {
+            // Solid: try LZ4 frame first, fall back to raw LZ4
+            if let decompressed = decompress(compressedData, expectedSize: expectedSize, algorithm: COMPRESSION_LZ4) {
+                entryData = decompressed
+            } else if let decompressed = decompress(compressedData, expectedSize: expectedSize, algorithm: COMPRESSION_LZ4_RAW) {
                 entryData = decompressed
             } else {
-                guard let decompressed = decompress(compressedData, expectedSize: expectedSize, algorithm: COMPRESSION_LZ4_RAW) else {
-                    // Fall back to frame LZ4
-                    guard let frameDecompressed = decompress(compressedData, expectedSize: expectedSize, algorithm: COMPRESSION_LZ4) else {
-                        throw PakError.decompressionFailed
-                    }
-                    entryData = frameDecompressed
-                }
+                throw PakError.decompressionFailed
+            }
+        } else {
+            // Non-solid: try raw LZ4 first, fall back to frame LZ4
+            if let decompressed = decompress(compressedData, expectedSize: expectedSize, algorithm: COMPRESSION_LZ4_RAW) {
                 entryData = decompressed
+            } else if let decompressed = decompress(compressedData, expectedSize: expectedSize, algorithm: COMPRESSION_LZ4) {
+                entryData = decompressed
+            } else {
+                throw PakError.decompressionFailed
             }
         }
 
