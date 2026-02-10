@@ -111,24 +111,19 @@ final class BackupService {
     }
 
     private func lockFile(at url: URL) {
-        // Uses chflags(2) to set the user immutable flag (uchg).
-        let path = url.path
-        guard FileManager.default.fileExists(atPath: path) else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
-        process.arguments = ["uchg", path]
-        try? process.run()
-        process.waitUntilExit()
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        var resourceValues = URLResourceValues()
+        resourceValues.isUserImmutable = true
+        var mutableURL = url
+        try? mutableURL.setResourceValues(resourceValues)
     }
 
     private func unlockFile(at url: URL) {
-        let path = url.path
-        guard FileManager.default.fileExists(atPath: path) else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
-        process.arguments = ["nouchg", path]
-        try? process.run()
-        process.waitUntilExit()
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        var resourceValues = URLResourceValues()
+        resourceValues.isUserImmutable = false
+        var mutableURL = url
+        try? mutableURL.setResourceValues(resourceValues)
     }
 
     // MARK: - Errors
