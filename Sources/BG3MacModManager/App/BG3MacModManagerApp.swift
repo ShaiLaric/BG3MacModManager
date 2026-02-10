@@ -1,8 +1,16 @@
 import SwiftUI
+import AppKit
 
 @main
 struct BG3MacModManagerApp: App {
     @StateObject private var appState = AppState()
+
+    init() {
+        // SPM executables launch as background processes by default.
+        // This makes the app appear in the Dock and show its window.
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
 
     var body: some Scene {
         WindowGroup {
