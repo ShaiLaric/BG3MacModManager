@@ -193,9 +193,6 @@ final class ModSettingsService {
         return lines.joined(separator: "\n")
     }
 
-        return xml
-    }
-
     private func escapeXML(_ string: String) -> String {
         string
             .replacingOccurrences(of: "&", with: "&amp;")
