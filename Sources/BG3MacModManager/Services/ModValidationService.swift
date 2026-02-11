@@ -113,8 +113,7 @@ final class ModValidationService {
 
         for mod in activeMods where !mod.isBasicGameModule {
             for dep in mod.dependencies {
-                guard dep.uuid != Constants.baseModuleUUID,
-                      dep.uuid != Constants.gustavDevUUID else { continue }
+                guard !Constants.builtInModuleUUIDs.contains(dep.uuid) else { continue }
 
                 if !activeUUIDs.contains(dep.uuid) {
                     let depName = dep.name.isEmpty ? dep.uuid : dep.name
@@ -146,7 +145,8 @@ final class ModValidationService {
             guard let modPosition = positionMap[mod.uuid] else { continue }
 
             for dep in mod.dependencies {
-                guard activeUUIDs.contains(dep.uuid),
+                guard !Constants.builtInModuleUUIDs.contains(dep.uuid),
+                      activeUUIDs.contains(dep.uuid),
                       let depPosition = positionMap[dep.uuid] else { continue }
 
                 if depPosition > modPosition {
