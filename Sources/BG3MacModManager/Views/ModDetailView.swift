@@ -11,6 +11,13 @@ struct ModDetailView: View {
                 // Header
                 header
 
+                // Per-mod warnings
+                let modWarnings = appState.warnings(for: mod)
+                if !modWarnings.isEmpty {
+                    Divider()
+                    issuesSection(modWarnings)
+                }
+
                 Divider()
 
                 // Metadata
@@ -168,6 +175,40 @@ struct ModDetailView: View {
                     .help("Reveal in Finder")
                 }
             }
+        }
+    }
+
+    // MARK: - Issues
+
+    private func issuesSection(_ warnings: [ModWarning]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Issues")
+                .font(.headline)
+
+            ForEach(warnings) { warning in
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: warning.severity.icon)
+                        .foregroundStyle(colorForSeverity(warning.severity))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(warning.message)
+                            .font(.body)
+                        if !warning.detail.isEmpty {
+                            Text(warning.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func colorForSeverity(_ severity: ModWarning.Severity) -> Color {
+        switch severity {
+        case .critical: return .red
+        case .warning:  return .yellow
+        case .info:     return .blue
         }
     }
 
