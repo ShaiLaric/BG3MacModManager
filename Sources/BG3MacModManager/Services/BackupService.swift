@@ -70,7 +70,7 @@ final class BackupService {
         let destination = FileLocations.modSettingsFile
 
         // Unlock the file if it's locked (macOS file locking)
-        setImmutable(false, at: destination)
+        _ = setImmutable(false, at: destination)
 
         // Create a safety backup before restoring
         if FileManager.default.fileExists(atPath: destination.path) {

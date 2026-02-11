@@ -68,7 +68,7 @@ final class ModDiscoveryService {
 
         // Build active list in the order defined by ModOrder
         for uuid in settings.modOrder {
-            if uuid == Constants.baseModuleUUID || uuid == Constants.gustavDevUUID { continue }
+            if Constants.builtInModuleUUIDs.contains(uuid) { continue }
 
             if let mod = allMods.first(where: { $0.uuid == uuid }) {
                 active.append(mod)
