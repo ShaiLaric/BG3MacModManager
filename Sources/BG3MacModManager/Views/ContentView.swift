@@ -36,6 +36,23 @@ struct ContentView: View {
         } message: { message in
             Text(message)
         }
+        .confirmationDialog(
+            "Save with Issues?",
+            isPresented: $appState.showSaveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Save Anyway", role: .destructive) {
+                Task { await appState.performSave() }
+            }
+            Button("Cancel", role: .cancel) {
+                appState.showSaveConfirmation = false
+                appState.pendingSaveWarnings = []
+            }
+        } message: {
+            let criticalCount = appState.pendingSaveWarnings.filter { $0.severity == .critical }.count
+            let warningCount = appState.pendingSaveWarnings.filter { $0.severity == .warning }.count
+            Text("Your mod configuration has \(criticalCount) critical issue(s) and \(warningCount) warning(s) that may cause the game to crash. Save anyway?")
+        }
         .overlay(alignment: .bottom) {
             statusBar
         }

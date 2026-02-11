@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Represents a single BG3 mod with all known metadata.
 struct ModInfo: Identifiable, Codable, Equatable {
@@ -77,10 +78,12 @@ struct ModInfo: Identifiable, Codable, Equatable {
     }
 
     /// Creates a minimal ModInfo from just a pak filename when no metadata is available.
+    /// Uses a deterministic UUID derived from the filename so refreshes produce stable identifiers.
     static func fromPakFilename(_ filename: String, at url: URL) -> ModInfo {
         let name = filename.replacingOccurrences(of: ".pak", with: "")
+        let deterministicUUID = Self.deterministicUUID(from: filename)
         return ModInfo(
-            uuid: UUID().uuidString.lowercased(),
+            uuid: deterministicUUID,
             folder: name,
             name: name,
             author: "Unknown",
@@ -93,6 +96,24 @@ struct ModInfo: Identifiable, Codable, Equatable {
             pakFileName: filename,
             pakFilePath: url,
             metadataSource: .filename
+        )
+    }
+
+    /// Generate a deterministic UUID from a string using SHA-256.
+    /// This ensures the same filename always produces the same UUID across refreshes.
+    private static func deterministicUUID(from input: String) -> String {
+        let digest = SHA256.hash(data: Data(input.lowercased().utf8))
+        var bytes = Array(digest.prefix(16))
+        // Set version nibble (byte 6, high nibble) to 5 (UUID v5-style)
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        // Set variant bits (byte 8, high 2 bits) to 10 (RFC 4122)
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return String(
+            format: "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
         )
     }
 }
@@ -116,6 +137,17 @@ enum MetadataSource: String, Codable {
     case filename     // Fallback: derived from the .pak filename
     case builtIn      // Hard-coded (e.g., GustavDev)
     case modSettings  // Imported from modsettings.lsx
+
+    /// Higher values = more trusted/complete metadata.
+    var priority: Int {
+        switch self {
+        case .builtIn:      return 5
+        case .metaLsx:      return 4
+        case .infoJson:     return 3
+        case .modSettings:  return 2
+        case .filename:     return 1
+        }
+    }
 }
 
 // MARK: - Constants

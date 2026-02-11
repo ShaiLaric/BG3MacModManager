@@ -54,11 +54,13 @@ struct ModRowView: View {
 
             Spacer()
 
-            // Warnings
-            if !appState.missingDependencies(for: mod).isEmpty {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.yellow)
-                    .help("Missing dependencies")
+            // Warnings (severity-aware)
+            let modWarnings = appState.warnings(for: mod)
+            if !modWarnings.isEmpty {
+                let maxSeverity = modWarnings.max(by: { $0.severity < $1.severity })?.severity ?? .info
+                Image(systemName: maxSeverity.icon)
+                    .foregroundStyle(colorForSeverity(maxSeverity))
+                    .help(modWarnings.map(\.message).joined(separator: "\n"))
             }
 
             // Activate/Deactivate button
@@ -83,5 +85,13 @@ struct ModRowView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private func colorForSeverity(_ severity: ModWarning.Severity) -> Color {
+        switch severity {
+        case .critical: return .red
+        case .warning:  return .yellow
+        case .info:     return .blue
+        }
     }
 }
