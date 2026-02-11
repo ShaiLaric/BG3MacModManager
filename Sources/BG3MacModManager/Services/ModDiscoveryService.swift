@@ -31,7 +31,19 @@ final class ModDiscoveryService {
             }
         }
 
-        return discoveredMods
+        // Deduplicate by UUID, preferring richer metadata sources
+        var seenUUIDs: [String: ModInfo] = [:]
+        for mod in discoveredMods {
+            if let existing = seenUUIDs[mod.uuid] {
+                if mod.metadataSource.priority > existing.metadataSource.priority {
+                    seenUUIDs[mod.uuid] = mod
+                }
+            } else {
+                seenUUIDs[mod.uuid] = mod
+            }
+        }
+
+        return Array(seenUUIDs.values)
     }
 
     /// Discover mods and merge with current modsettings.lsx to determine active state.
@@ -93,15 +105,16 @@ final class ModDiscoveryService {
         let pakFilename = pakURL.lastPathComponent
         let baseName = pakURL.deletingPathExtension().lastPathComponent
 
-        // Strategy 1: Look for info.json alongside the .pak
-        let infoJsonURL = pakURL.deletingLastPathComponent().appendingPathComponent("info.json")
-        if let mod = parseInfoJson(at: infoJsonURL, pakFilename: pakFilename, pakURL: pakURL) {
+        // Strategy 1a: Look for <modname>.json (unambiguous, one-to-one with the PAK)
+        let namedJsonURL = pakURL.deletingLastPathComponent().appendingPathComponent("\(baseName).json")
+        if let mod = parseInfoJson(at: namedJsonURL, pakFilename: pakFilename, pakURL: pakURL) {
             return mod
         }
 
-        // Also check for <modname>.json
-        let namedJsonURL = pakURL.deletingLastPathComponent().appendingPathComponent("\(baseName).json")
-        if let mod = parseInfoJson(at: namedJsonURL, pakFilename: pakFilename, pakURL: pakURL) {
+        // Strategy 1b: Look for generic info.json, but ONLY if its folder/name matches this PAK.
+        // Without this check, a single info.json in the flat Mods folder would match every PAK.
+        let infoJsonURL = pakURL.deletingLastPathComponent().appendingPathComponent("info.json")
+        if let mod = parseInfoJson(at: infoJsonURL, pakFilename: pakFilename, pakURL: pakURL, requireMatchingFolder: baseName) {
             return mod
         }
 
@@ -116,7 +129,7 @@ final class ModDiscoveryService {
 
     // MARK: - info.json Parsing
 
-    private func parseInfoJson(at url: URL, pakFilename: String, pakURL: URL) -> ModInfo? {
+    private func parseInfoJson(at url: URL, pakFilename: String, pakURL: URL, requireMatchingFolder: String? = nil) -> ModInfo? {
         guard FileManager.default.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url) else {
             return nil
@@ -124,7 +137,6 @@ final class ModDiscoveryService {
 
         struct InfoJsonRoot: Decodable {
             let mods: [InfoJsonMod]?
-            // Some info.json formats use "Mods" instead of "mods"
             enum CodingKeys: String, CodingKey {
                 case mods
                 case Mods
@@ -139,6 +151,23 @@ final class ModDiscoveryService {
             }
         }
 
+        struct InfoJsonDependency: Decodable {
+            let UUID: String?
+            let Name: String?
+            let Folder: String?
+            let Version: String?
+            let MD5: String?
+            // Also support lowercase variants
+            let uuid: String?
+            let name: String?
+            let folder: String?
+
+            enum CodingKeys: String, CodingKey {
+                case UUID, Name, Folder, Version, MD5
+                case uuid, name, folder
+            }
+        }
+
         struct InfoJsonMod: Decodable {
             let modName: String?
             let folderName: String?
@@ -149,11 +178,11 @@ final class ModDiscoveryService {
             let Folder: String?
             let Author: String?
             let Description: String?
+            let Dependencies: [InfoJsonDependency]?
 
-            // Flexible decoding for different naming conventions
             enum CodingKeys: String, CodingKey {
                 case modName, folderName, UUID, version, MD5
-                case Name, Folder, Author, Description
+                case Name, Folder, Author, Description, Dependencies
             }
         }
 
@@ -162,9 +191,16 @@ final class ModDiscoveryService {
             return nil
         }
 
-        let uuid = modEntry.UUID ?? UUID().uuidString.lowercased()
+        let uuid = modEntry.UUID ?? Foundation.UUID().uuidString.lowercased()
         let name = modEntry.modName ?? modEntry.Name ?? pakFilename.replacingOccurrences(of: ".pak", with: "")
         let folder = modEntry.folderName ?? modEntry.Folder ?? name
+
+        // If requireMatchingFolder is set, only accept this info.json if it describes this PAK
+        if let requiredFolder = requireMatchingFolder {
+            guard folder.lowercased() == requiredFolder.lowercased() else {
+                return nil
+            }
+        }
 
         let version64: Int64
         if let versionStr = modEntry.version, let v = Version64(versionString: versionStr) {
@@ -175,6 +211,24 @@ final class ModDiscoveryService {
 
         let requiresSE = PakReader.containsScriptExtender(at: pakURL)
 
+        // Parse dependencies from info.json
+        let dependencies: [ModDependency] = (modEntry.Dependencies ?? []).compactMap { dep in
+            guard let depUUID = dep.UUID ?? dep.uuid else { return nil }
+            let depVersion64: Int64
+            if let vStr = dep.Version, let v = Version64(versionString: vStr) {
+                depVersion64 = v.rawValue
+            } else {
+                depVersion64 = 0
+            }
+            return ModDependency(
+                uuid: depUUID,
+                folder: dep.Folder ?? dep.folder ?? "",
+                name: dep.Name ?? dep.name ?? "",
+                version64: depVersion64,
+                md5: dep.MD5 ?? ""
+            )
+        }
+
         return ModInfo(
             uuid: uuid,
             folder: folder,
@@ -184,7 +238,7 @@ final class ModDiscoveryService {
             version64: version64,
             md5: modEntry.MD5 ?? "",
             tags: [],
-            dependencies: [],
+            dependencies: dependencies,
             requiresScriptExtender: requiresSE,
             pakFileName: pakFilename,
             pakFilePath: pakURL,

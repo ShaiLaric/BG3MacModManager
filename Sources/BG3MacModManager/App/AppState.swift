@@ -36,6 +36,13 @@ final class AppState: ObservableObject {
     /// Loading state.
     @Published var isLoading: Bool = false
 
+    /// Validation warnings for the current mod configuration.
+    @Published var warnings: [ModWarning] = []
+
+    /// Pre-save confirmation state.
+    @Published var showSaveConfirmation: Bool = false
+    @Published var pendingSaveWarnings: [ModWarning] = []
+
     // MARK: - Services
 
     let modSettingsService = ModSettingsService()
@@ -44,6 +51,7 @@ final class AppState: ObservableObject {
     let backupService = BackupService()
     let seService = ScriptExtenderService()
     let launchService = GameLaunchService()
+    let validationService = ModValidationService()
 
     // MARK: - Initialization
 
@@ -75,6 +83,7 @@ final class AppState: ObservableObject {
             activeMods = result.active
             inactiveMods = result.inactive
             statusMessage = "Found \(activeMods.count) active, \(inactiveMods.count) inactive mods"
+            runValidation()
         } catch {
             showError(error)
         }
@@ -107,21 +116,24 @@ final class AppState: ObservableObject {
         guard let index = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
         inactiveMods.remove(at: index)
         activeMods.append(mod)
+        runValidation()
     }
 
     /// Deactivate a mod (move from active to inactive).
     func deactivateMod(_ mod: ModInfo) {
-        guard !mod.isBasicGameModule else { return } // Can't deactivate GustavDev
+        guard !mod.isBasicGameModule else { return }
         guard let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
         activeMods.remove(at: index)
         inactiveMods.append(mod)
         inactiveMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        runValidation()
     }
 
     /// Activate all inactive mods.
     func activateAll() {
         activeMods.append(contentsOf: inactiveMods)
         inactiveMods.removeAll()
+        runValidation()
     }
 
     /// Deactivate all active mods (except GustavDev).
@@ -130,38 +142,55 @@ final class AppState: ObservableObject {
         inactiveMods.append(contentsOf: toDeactivate)
         inactiveMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         activeMods.removeAll(where: { !$0.isBasicGameModule })
+        runValidation()
     }
 
     /// Move a mod in the active load order.
     func moveActiveMod(from source: IndexSet, to destination: Int) {
         activeMods.move(fromOffsets: source, toOffset: destination)
+        runValidation()
     }
 
     // MARK: - Save to modsettings.lsx
 
     /// Write the current active mod configuration to modsettings.lsx.
+    /// Shows a confirmation dialog if critical warnings are detected.
     func saveModSettings() async {
+        let saveWarnings = validationService.validateForSave(
+            activeMods: activeMods,
+            inactiveMods: inactiveMods,
+            seStatus: seStatus
+        )
+
+        let hasCritical = saveWarnings.contains { $0.severity == .critical }
+
+        if hasCritical {
+            pendingSaveWarnings = saveWarnings
+            showSaveConfirmation = true
+            return
+        }
+
+        await performSave()
+    }
+
+    /// Actually write modsettings.lsx (called directly or after user confirms warnings).
+    func performSave() async {
         do {
-            // Create backup first
             if FileLocations.modSettingsExists {
                 try backupService.backupModSettings()
             }
 
-            // Unlock if locked
             backupService.unlockModSettings()
-
-            // Write new settings
             try modSettingsService.write(activeMods: activeMods)
 
-            // Lock to prevent game from overwriting
             let locked = backupService.lockModSettings()
+            statusMessage = locked
+                ? "Saved \(activeMods.count) mods to modsettings.lsx (locked)"
+                : "Saved \(activeMods.count) mods to modsettings.lsx (WARNING: lock failed)"
 
-            if locked {
-                statusMessage = "Saved \(activeMods.count) mods to modsettings.lsx (locked)"
-            } else {
-                statusMessage = "Saved \(activeMods.count) mods to modsettings.lsx (WARNING: lock failed)"
-            }
             await refreshBackups()
+            showSaveConfirmation = false
+            pendingSaveWarnings = []
         } catch {
             showError(error)
         }
@@ -216,6 +245,7 @@ final class AppState: ObservableObject {
         activeMods = newActive
         inactiveMods = newInactive
         statusMessage = "Loaded profile '\(profile.name)'"
+        runValidation()
     }
 
     func deleteProfile(_ profile: ModProfile) async {
@@ -298,25 +328,64 @@ final class AppState: ObservableObject {
         try process.run()
         process.waitUntilExit()
 
-        // Find all .pak files in the extracted content
+        // Collect all PAK and info.json files from the extracted content
+        var pakFiles: [URL] = []
+        var infoJsonFiles: [URL] = []
+
         let enumerator = FileManager.default.enumerator(at: tempDir, includingPropertiesForKeys: nil)
         while let fileURL = enumerator?.nextObject() as? URL {
             if fileURL.pathExtension.lowercased() == "pak" {
-                let destination = modsFolder.appendingPathComponent(fileURL.lastPathComponent)
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    try FileManager.default.removeItem(at: destination)
-                }
-                try FileManager.default.copyItem(at: fileURL, to: destination)
-            }
-            // Also copy info.json if found
-            if fileURL.lastPathComponent.lowercased() == "info.json" {
-                let destination = modsFolder.appendingPathComponent("info.json")
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    try FileManager.default.removeItem(at: destination)
-                }
-                try FileManager.default.copyItem(at: fileURL, to: destination)
+                pakFiles.append(fileURL)
+            } else if fileURL.lastPathComponent.lowercased() == "info.json" {
+                infoJsonFiles.append(fileURL)
             }
         }
+
+        // For each PAK, copy it and find the nearest info.json to pair with it
+        for pakURL in pakFiles {
+            let pakFilename = pakURL.lastPathComponent
+            let baseName = pakURL.deletingPathExtension().lastPathComponent
+
+            // Copy PAK to Mods folder
+            let pakDestination = modsFolder.appendingPathComponent(pakFilename)
+            if FileManager.default.fileExists(atPath: pakDestination.path) {
+                try FileManager.default.removeItem(at: pakDestination)
+            }
+            try FileManager.default.copyItem(at: pakURL, to: pakDestination)
+
+            // Find the nearest info.json for this PAK (same dir or parent within the ZIP)
+            if let infoJson = findNearestInfoJson(for: pakURL, in: infoJsonFiles, zipRoot: tempDir) {
+                // Rename to <baseName>.json so discovery can match it unambiguously to this PAK
+                let jsonDestination = modsFolder.appendingPathComponent("\(baseName).json")
+                if FileManager.default.fileExists(atPath: jsonDestination.path) {
+                    try FileManager.default.removeItem(at: jsonDestination)
+                }
+                try FileManager.default.copyItem(at: infoJson, to: jsonDestination)
+            }
+        }
+
+        // Clean up any stale bare "info.json" in the Mods folder that could pollute discovery
+        let staleInfoJson = modsFolder.appendingPathComponent("info.json")
+        try? FileManager.default.removeItem(at: staleInfoJson)
+    }
+
+    /// Find the nearest info.json to a PAK file within the extracted ZIP.
+    /// Checks same directory first, then parent directories up to the ZIP root.
+    private func findNearestInfoJson(for pakURL: URL, in infoJsonFiles: [URL], zipRoot: URL) -> URL? {
+        var searchDir = pakURL.deletingLastPathComponent()
+        let rootPath = zipRoot.standardizedFileURL.path
+
+        while searchDir.standardizedFileURL.path.hasPrefix(rootPath) {
+            if let match = infoJsonFiles.first(where: {
+                $0.deletingLastPathComponent().standardizedFileURL.path == searchDir.standardizedFileURL.path
+            }) {
+                return match
+            }
+            let parent = searchDir.deletingLastPathComponent()
+            if parent.standardizedFileURL.path == searchDir.standardizedFileURL.path { break }
+            searchDir = parent
+        }
+        return nil
     }
 
     // MARK: - Helpers
@@ -327,13 +396,42 @@ final class AppState: ObservableObject {
             ?? inactiveMods.first(where: { $0.uuid == id })
     }
 
-    /// Missing dependency check for active mods.
+    /// Missing dependency check for a single mod.
     func missingDependencies(for mod: ModInfo) -> [ModDependency] {
         let activeUUIDs = Set(activeMods.map(\.uuid))
         return mod.dependencies.filter { dep in
             !activeUUIDs.contains(dep.uuid) &&
             dep.uuid != Constants.baseModuleUUID &&
             dep.uuid != Constants.gustavDevUUID
+        }
+    }
+
+    /// All validation warnings affecting a specific mod.
+    func warnings(for mod: ModInfo) -> [ModWarning] {
+        warnings.filter { $0.affectedModUUIDs.contains(mod.uuid) }
+    }
+
+    /// Run all validation checks against the current mod state.
+    func runValidation() {
+        warnings = validationService.validate(
+            activeMods: activeMods,
+            inactiveMods: inactiveMods,
+            seStatus: seStatus
+        )
+    }
+
+    /// Sort active mods by dependency order using topological sort.
+    func autoSortByDependencies() {
+        let nonBase = activeMods.filter { !$0.isBasicGameModule }
+        let base = activeMods.filter { $0.isBasicGameModule }
+
+        if let sorted = validationService.topologicalSort(mods: nonBase) {
+            activeMods = base + sorted
+            runValidation()
+            statusMessage = "Mods sorted by dependency order"
+        } else {
+            errorMessage = "Cannot auto-sort: circular dependencies detected. Resolve cycles first."
+            showError = true
         }
     }
 

@@ -5,11 +5,17 @@ struct ModListView: View {
     @EnvironmentObject var appState: AppState
     @State private var searchText = ""
     @State private var draggedMod: ModInfo?
+    @State private var warningsExpanded = false
 
     var body: some View {
         HSplitView {
             // Left: Active + Inactive mod lists
             VStack(spacing: 0) {
+                // Warnings banner
+                if !appState.warnings.isEmpty {
+                    warningsBanner
+                }
+
                 activeModsSection
                 Divider()
                 inactiveModsSection
@@ -21,6 +27,93 @@ struct ModListView: View {
                 .frame(minWidth: 280, idealWidth: 320)
         }
         .searchable(text: $searchText, prompt: "Filter mods...")
+    }
+
+    // MARK: - Warnings Banner
+
+    private var warningsBanner: some View {
+        let criticalCount = appState.warnings.filter { $0.severity == .critical }.count
+        let warningCount = appState.warnings.filter { $0.severity == .warning }.count
+
+        return VStack(spacing: 0) {
+            // Summary bar (always visible when warnings exist)
+            Button {
+                withAnimation { warningsExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    if criticalCount > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark.octagon.fill")
+                                .foregroundStyle(.red)
+                            Text("\(criticalCount) critical")
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    if warningCount > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.yellow)
+                            Text("\(warningCount) warning\(warningCount == 1 ? "" : "s")")
+                        }
+                    }
+
+                    Spacer()
+
+                    Image(systemName: warningsExpanded ? "chevron.up" : "chevron.down")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(criticalCount > 0 ? Color.red.opacity(0.1) : Color.yellow.opacity(0.1))
+            }
+            .buttonStyle(.plain)
+
+            // Expanded warning list
+            if warningsExpanded {
+                warningsDetailList
+            }
+
+            Divider()
+        }
+    }
+
+    private var warningsDetailList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(appState.warnings) { warning in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: warning.severity.icon)
+                            .foregroundStyle(colorForSeverity(warning.severity))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(warning.message)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            if !warning.detail.isEmpty {
+                                Text(warning.detail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        Spacer()
+
+                        if case .autoSort = warning.suggestedAction {
+                            Button("Auto-Sort") {
+                                appState.autoSortByDependencies()
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .frame(maxHeight: 150)
     }
 
     // MARK: - Active Mods
@@ -35,6 +128,8 @@ struct ModListView: View {
                 Menu {
                     Button("Activate All") { appState.activateAll() }
                     Button("Deactivate All") { appState.deactivateAll() }
+                    Divider()
+                    Button("Sort by Dependencies") { appState.autoSortByDependencies() }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -135,5 +230,15 @@ struct ModListView: View {
             || mod.author.lowercased().contains(query)
             || mod.folder.lowercased().contains(query)
             || mod.tags.contains { $0.lowercased().contains(query) }
+    }
+
+    // MARK: - Helpers
+
+    private func colorForSeverity(_ severity: ModWarning.Severity) -> Color {
+        switch severity {
+        case .critical: return .red
+        case .warning:  return .yellow
+        case .info:     return .blue
+        }
     }
 }
