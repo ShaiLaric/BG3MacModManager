@@ -162,6 +162,30 @@ enum Constants {
     /// Legacy GustavDev UUID (pre-Patch 7).
     static let gustavDevUUID = "28ac9ce2-2aba-8cda-b3b5-6e922f71b6b8"
 
+    /// All built-in game module UUIDs that should never be flagged as missing dependencies.
+    /// Sourced from LaughingLeader/BG3ModManager IgnoredMods.json.
+    static let builtInModuleUUIDs: Set<String> = [
+        "991c9c7a-fb80-40cb-8f0d-b92d4e80e9b1", // Gustav
+        "28ac9ce2-2aba-8cda-b3b5-6e922f71b6b8", // GustavDev
+        "cb555efe-2d9e-131f-8195-a89329d218ea", // GustavX
+        "ed539163-bb70-431b-96a7-f5b2eda5376b", // Shared
+        "3d0c5ff8-c95d-c907-ff3e-34b204f1c630", // SharedDev
+        "9dff4c3b-fda7-43de-a763-ce1383039999", // Engine
+        "e842840a-2449-588c-b0c4-22122cfce31b", // DiceSet_01
+        "b176a0ac-d79f-ed9d-5a87-5c2c80874e10", // DiceSet_02
+        "e0a4d990-7b9b-8fa9-d7c6-04017c6cf5b1", // DiceSet_03
+        "77a2155f-4b35-4f0c-e7ff-4338f91426a4", // DiceSet_04
+        "6efc8f44-cc2a-0273-d4b1-681d3faa411b", // DiceSet_05
+        "ee4989eb-aab8-968f-8674-812ea2f4bfd7", // DiceSet_06
+        "bf19bab4-4908-ef39-9065-ced469c0f877", // DiceSet_07
+        "b77b6210-ac50-4cb1-a3d5-5702fb9c744c", // Honour
+        "767d0062-d82c-279c-e16b-dfee7fe94cdd", // HonourX
+        "ee5a55ff-eb38-0b27-c5b0-f358dc306d34", // ModBrowser
+        "630daa32-70f8-3da5-41b9-154fe8410236", // MainUI
+        "e1ce736b-52e6-e713-e9e7-e6abbb15a198", // CrossplayUI
+        "55ef175c-59e3-b44b-3fb2-8f86acc5d550", // PhotoMode
+    ]
+
     /// Steam App ID for BG3.
     static let steamAppID = "1086940"
 }
