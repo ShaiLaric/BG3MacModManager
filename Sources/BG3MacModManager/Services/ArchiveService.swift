@@ -119,8 +119,11 @@ final class ArchiveService {
         entries: [(source: URL, archivePath: String)],
         progress: ((Double) -> Void)? = nil
     ) throws {
-        guard let archive = Archive(url: destination, accessMode: .create) else {
-            throw ArchiveError.zipCreationFailed("Could not create archive at \(destination.path)")
+        let archive: Archive
+        do {
+            archive = try Archive(url: destination, accessMode: .create)
+        } catch {
+            throw ArchiveError.zipCreationFailed("Could not create archive at \(destination.path): \(error.localizedDescription)")
         }
 
         let total = Double(entries.count)
