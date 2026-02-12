@@ -31,6 +31,11 @@ struct BG3MacModManagerApp: App {
                 }
                 .keyboardShortcut("i", modifiers: .command)
 
+                Button("Import from Save File...") {
+                    importFromSavePanel()
+                }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+
                 Divider()
 
                 Button("Refresh Mods") {
@@ -77,6 +82,29 @@ struct BG3MacModManagerApp: App {
                 Task {
                     await appState.importMod(from: url)
                 }
+            }
+        }
+    }
+
+    private func importFromSavePanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Load Order from Save File"
+        panel.message = "Select a BG3 save file (.lsv) to import its mod load order"
+        panel.allowedContentTypes = [
+            .init(filenameExtension: "lsv")!,
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        // Default to the saves directory if it exists
+        let savesDir = FileLocations.savegamesFolder
+        if FileManager.default.fileExists(atPath: savesDir.path) {
+            panel.directoryURL = savesDir
+        }
+
+        if panel.runModal() == .OK, let url = panel.urls.first {
+            Task {
+                await appState.importFromSaveFile(url: url)
             }
         }
     }

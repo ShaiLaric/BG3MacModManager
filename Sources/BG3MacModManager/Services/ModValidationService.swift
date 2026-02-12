@@ -22,6 +22,7 @@ final class ModValidationService {
         warnings.append(contentsOf: checkPhantomMods(activeMods: activeMods))
         warnings.append(contentsOf: checkScriptExtenderRequirements(activeMods: activeMods, seStatus: seStatus))
         warnings.append(contentsOf: checkNoMetadataMods(activeMods: activeMods, inactiveMods: inactiveMods))
+        warnings.append(contentsOf: checkModCrashSanityCheck())
 
         return warnings.sorted { $0.severity > $1.severity }
     }
@@ -306,5 +307,18 @@ final class ModValidationService {
                 affectedModUUIDs: [mod.uuid]
             )
         }
+    }
+
+    /// Check if the ModCrashSanityCheck directory exists.
+    /// Since Patch 8 this directory causes BG3 to deactivate externally-managed mods.
+    private func checkModCrashSanityCheck() -> [ModWarning] {
+        guard FileLocations.modCrashSanityCheckExists else { return [] }
+        return [ModWarning(
+            severity: .info,
+            category: .modCrashSanityCheck,
+            message: "ModCrashSanityCheck folder detected",
+            detail: "The ModCrashSanityCheck directory exists. Since Patch 8 this can cause the game to deactivate your mods on launch. Delete it to prevent this.",
+            suggestedAction: .deleteModCrashSanityCheck
+        )]
     }
 }

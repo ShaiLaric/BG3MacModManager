@@ -59,6 +59,19 @@ struct ContentView: View {
             DuplicateResolverView()
                 .environmentObject(appState)
         }
+        .alert(
+            "External modsettings.lsx Change Detected",
+            isPresented: $appState.showExternalChangeAlert
+        ) {
+            Button("Restore from Backup") {
+                Task { await appState.restoreFromLatestBackup() }
+            }
+            Button("Keep Current", role: .cancel) {
+                appState.showExternalChangeAlert = false
+            }
+        } message: {
+            Text("The modsettings.lsx file has been modified outside this app (possibly by the game). Would you like to restore your last saved load order from backup?")
+        }
         .overlay(alignment: .bottom) {
             statusBar
         }

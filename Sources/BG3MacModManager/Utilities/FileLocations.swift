@@ -34,6 +34,12 @@ enum FileLocations {
         publicProfile.appendingPathComponent("Savegames/Story")
     }
 
+    /// `~/Documents/Larian Studios/Baldur's Gate 3/ModCrashSanityCheck/`
+    /// Since Patch 8, this directory causes the game to deactivate externally-managed mods.
+    static var modCrashSanityCheckFolder: URL {
+        larianDocuments.appendingPathComponent("ModCrashSanityCheck")
+    }
+
     // MARK: - Game Installation (Steam)
 
     static var steamApps: URL {
@@ -97,6 +103,11 @@ enum FileLocations {
         appSupportDirectory.appendingPathComponent("Profiles")
     }
 
+    /// Stores a SHA-256 hash of modsettings.lsx as it was last written by this app.
+    static var lastExportHashFile: URL {
+        appSupportDirectory.appendingPathComponent("last_export_hash")
+    }
+
     // MARK: - Helpers
 
     /// Ensures a directory exists, creating it if necessary.
@@ -117,5 +128,10 @@ enum FileLocations {
     /// Returns true if modsettings.lsx exists.
     static var modSettingsExists: Bool {
         FileManager.default.fileExists(atPath: modSettingsFile.path)
+    }
+
+    /// Returns true if the ModCrashSanityCheck directory exists.
+    static var modCrashSanityCheckExists: Bool {
+        FileManager.default.fileExists(atPath: modCrashSanityCheckFolder.path)
     }
 }

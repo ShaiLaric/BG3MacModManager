@@ -30,11 +30,20 @@ Parse the `<Conflicts>` node from `meta.lsx` and warn when conflicting mods are 
 - `Views/ModListView.swift` — added "Deactivate" action button for conflict warnings in the banner
 - `Views/ModRowView.swift` — added tooltips for SE badge and no-metadata label
 
-### Phase 3: Game Compatibility (P1)
+### Phase 3: Game Compatibility (P1) [DONE]
 
-- **ModCrashSanityCheck workaround**: auto-delete the problematic directory on launch
-- **Last-exported order recovery**: detect external modsettings.lsx changes and prompt restore
-- **Import from save files**: extract modsettings.lsx from .lsv archives
+- **ModCrashSanityCheck workaround**: auto-delete the problematic directory on launch and before save
+- **Last-exported order recovery**: detect external modsettings.lsx changes via SHA-256 hash and prompt restore from backup
+- **Import from save files**: extract modsettings.lsx from .lsv archives via PakReader
+
+**Modified files:**
+- `Utilities/FileLocations.swift` — added `modCrashSanityCheckFolder`, `lastExportHashFile`, `modCrashSanityCheckExists`
+- `Models/ModWarning.swift` — added `.modCrashSanityCheck` and `.externalModSettingsChange` categories, `.deleteModCrashSanityCheck` and `.restoreModSettings` suggested actions
+- `Services/ModValidationService.swift` — added `checkModCrashSanityCheck()` validation check
+- `App/AppState.swift` — added `deleteModCrashSanityCheckIfNeeded()`, `recordModSettingsHash()`, `checkForExternalModSettingsChange()`, `restoreFromLatestBackup()`, `importFromSaveFile(url:)`, `showExternalChangeAlert` state
+- `App/BG3MacModManagerApp.swift` — added "Import from Save File..." menu item (Cmd+Shift+I) with save file picker
+- `Views/ModListView.swift` — added "Delete Folder" and "Restore Backup" action buttons in warnings banner
+- `Views/ContentView.swift` — added external modsettings.lsx change detection alert dialog
 
 ### Phase 4: Enhanced UX (P2)
 
