@@ -38,7 +38,7 @@ struct ContentView: View {
             .overlay {
                 dropTargetOverlay
             }
-            .onChange(of: appState.navigateToSidebarItem) { _, target in
+            .onChange(of: appState.navigateToSidebarItem) { target in
                 if let target = target {
                     if target == "scriptExtender" {
                         selectedSidebarItem = .scriptExtender
