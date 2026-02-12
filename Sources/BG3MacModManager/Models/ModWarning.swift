@@ -66,6 +66,7 @@ struct ModWarning: Identifiable, Equatable {
         case autoSort
         case deactivateMod(uuid: String)
         case installDependency(name: String)
+        case activateDependencies(modUUID: String)
         case installScriptExtender
         case deleteModCrashSanityCheck
         case restoreModSettings

@@ -18,6 +18,9 @@ final class AppState: ObservableObject {
     /// Currently selected mod (for detail panel).
     @Published var selectedModID: String?
 
+    /// Multi-selection for bulk operations (Cmd+Click, Shift+Click).
+    @Published var selectedModIDs: Set<String> = []
+
     /// Saved profiles.
     @Published var profiles: [ModProfile] = []
 
@@ -559,9 +562,19 @@ final class AppState: ObservableObject {
     // MARK: - Helpers
 
     var selectedMod: ModInfo? {
-        guard let id = selectedModID else { return nil }
-        return activeMods.first(where: { $0.uuid == id })
-            ?? inactiveMods.first(where: { $0.uuid == id })
+        // Prefer selectedModID (single-click / last-clicked) if set
+        if let id = selectedModID {
+            if let mod = activeMods.first(where: { $0.uuid == id })
+                ?? inactiveMods.first(where: { $0.uuid == id }) {
+                return mod
+            }
+        }
+        // Fall back to first item in multi-selection set
+        if let firstID = selectedModIDs.first {
+            return activeMods.first(where: { $0.uuid == firstID })
+                ?? inactiveMods.first(where: { $0.uuid == firstID })
+        }
+        return nil
     }
 
     /// Missing dependency check for a single mod.
@@ -571,6 +584,158 @@ final class AppState: ObservableObject {
             !activeUUIDs.contains(dep.uuid) &&
             !Constants.builtInModuleUUIDs.contains(dep.uuid)
         }
+    }
+
+    /// Whether the given mod has any missing dependencies among active mods.
+    func hasMissingDependencies(_ mod: ModInfo) -> Bool {
+        let activeUUIDs = Set(activeMods.map(\.uuid))
+        return mod.dependencies.contains { dep in
+            !activeUUIDs.contains(dep.uuid) &&
+            !Constants.builtInModuleUUIDs.contains(dep.uuid)
+        }
+    }
+
+    /// Whether all of the given mod's dependencies are loaded before it in the active load order.
+    func hasDependencyOrderIssue(_ mod: ModInfo) -> Bool {
+        let positionMap = Dictionary(
+            activeMods.enumerated().map { ($1.uuid, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard let modPosition = positionMap[mod.uuid] else { return false }
+        let activeUUIDs = Set(activeMods.map(\.uuid))
+        return mod.dependencies.contains { dep in
+            guard !Constants.builtInModuleUUIDs.contains(dep.uuid),
+                  activeUUIDs.contains(dep.uuid),
+                  let depPosition = positionMap[dep.uuid] else { return false }
+            return depPosition > modPosition
+        }
+    }
+
+    /// Compute the full transitive dependency tree for a mod.
+    /// Returns an array of (depth, ModDependency, resolved ModInfo?) tuples in depth-first order.
+    func transitiveDependencies(for mod: ModInfo) -> [(depth: Int, dependency: ModDependency, resolved: ModInfo?)] {
+        let allMods = activeMods + inactiveMods
+        let modsByUUID = Dictionary(allMods.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
+        var result: [(depth: Int, dependency: ModDependency, resolved: ModInfo?)] = []
+        var visited: Set<String> = [mod.uuid]
+
+        func walk(dependencies: [ModDependency], depth: Int) {
+            for dep in dependencies {
+                guard !Constants.builtInModuleUUIDs.contains(dep.uuid) else { continue }
+                let resolved = modsByUUID[dep.uuid]
+                result.append((depth: depth, dependency: dep, resolved: resolved))
+                guard !visited.contains(dep.uuid) else { continue }
+                visited.insert(dep.uuid)
+                if let resolved = resolved {
+                    walk(dependencies: resolved.dependencies, depth: depth + 1)
+                }
+            }
+        }
+
+        walk(dependencies: mod.dependencies, depth: 0)
+        return result
+    }
+
+    /// Activate all missing dependencies for a specific mod.
+    /// Finds mods in the inactive list that match missing dependency UUIDs and activates them.
+    /// Returns the number of dependencies activated.
+    @discardableResult
+    func activateMissingDependencies(for mod: ModInfo) -> Int {
+        let missing = missingDependencies(for: mod)
+        var activated = 0
+        for dep in missing {
+            if let index = inactiveMods.firstIndex(where: { $0.uuid == dep.uuid }) {
+                let depMod = inactiveMods.remove(at: index)
+                // Insert before the dependent mod so load order is correct
+                if let modIndex = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) {
+                    activeMods.insert(depMod, at: modIndex)
+                } else {
+                    activeMods.append(depMod)
+                }
+                activated += 1
+            }
+        }
+        if activated > 0 { runValidation() }
+        return activated
+    }
+
+    /// Activate all missing dependencies across all active mods.
+    /// Returns the total number of dependencies activated.
+    @discardableResult
+    func activateAllMissingDependencies() -> Int {
+        var totalActivated = 0
+        // Iterate until no more can be activated (handles transitive deps)
+        var changed = true
+        while changed {
+            changed = false
+            let currentActive = activeMods // snapshot to avoid mutation during iteration
+            for mod in currentActive {
+                let missing = missingDependencies(for: mod)
+                for dep in missing {
+                    if let index = inactiveMods.firstIndex(where: { $0.uuid == dep.uuid }) {
+                        let depMod = inactiveMods.remove(at: index)
+                        if let modIndex = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) {
+                            activeMods.insert(depMod, at: modIndex)
+                        } else {
+                            activeMods.append(depMod)
+                        }
+                        totalActivated += 1
+                        changed = true
+                    }
+                }
+            }
+        }
+        if totalActivated > 0 { runValidation() }
+        return totalActivated
+    }
+
+    // MARK: - Multi-Select Operations
+
+    /// Activate all mods in the multi-selection that are currently inactive.
+    func activateSelectedMods() {
+        let toActivate = inactiveMods.filter { selectedModIDs.contains($0.uuid) }
+        guard !toActivate.isEmpty else { return }
+        for mod in toActivate {
+            if let index = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) {
+                inactiveMods.remove(at: index)
+                activeMods.append(mod)
+            }
+        }
+        selectedModIDs.removeAll()
+        runValidation()
+        statusMessage = "Activated \(toActivate.count) mod(s)"
+    }
+
+    /// Deactivate all mods in the multi-selection that are currently active.
+    func deactivateSelectedMods() {
+        let toDeactivate = activeMods.filter {
+            selectedModIDs.contains($0.uuid) && !$0.isBasicGameModule
+        }
+        guard !toDeactivate.isEmpty else { return }
+        for mod in toDeactivate {
+            if let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) {
+                activeMods.remove(at: index)
+                inactiveMods.append(mod)
+            }
+        }
+        inactiveMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        selectedModIDs.removeAll()
+        runValidation()
+        statusMessage = "Deactivated \(toDeactivate.count) mod(s)"
+    }
+
+    /// Move multiple selected active mods to a new position in the load order.
+    func moveSelectedActiveMods(to destination: Int) {
+        let selectedActive = activeMods.enumerated()
+            .filter { selectedModIDs.contains($1.uuid) && !$1.isBasicGameModule }
+            .map { $0 }
+        guard !selectedActive.isEmpty else { return }
+
+        let modsToMove = selectedActive.map(\.element)
+        let indicesToRemove = IndexSet(selectedActive.map(\.offset))
+        activeMods.move(fromOffsets: indicesToRemove, toOffset: destination)
+        runValidation()
+        statusMessage = "Moved \(modsToMove.count) mod(s)"
     }
 
     /// All validation warnings affecting a specific mod.
