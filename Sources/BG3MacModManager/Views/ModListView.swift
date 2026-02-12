@@ -4,8 +4,9 @@ import SwiftUI
 struct ModListView: View {
     @EnvironmentObject var appState: AppState
     @State private var searchText = ""
-    @State private var draggedMod: ModInfo?
     @State private var warningsExpanded = false
+    @State private var activeDropTargeted = false
+    @State private var inactiveDropTargeted = false
 
     var body: some View {
         HSplitView {
@@ -14,6 +15,11 @@ struct ModListView: View {
                 // Warnings banner
                 if !appState.warnings.isEmpty {
                     warningsBanner
+                }
+
+                // Multi-selection action bar
+                if appState.selectedModIDs.count > 1 {
+                    multiSelectActionBar
                 }
 
                 activeModsSection
@@ -27,6 +33,60 @@ struct ModListView: View {
                 .frame(minWidth: 280, idealWidth: 320)
         }
         .searchable(text: $searchText, prompt: "Filter mods...")
+        .onChange(of: appState.selectedModIDs) { newSelection in
+            // Keep selectedModID in sync for detail panel display
+            if newSelection.count == 1 {
+                appState.selectedModID = newSelection.first
+            } else if newSelection.isEmpty {
+                appState.selectedModID = nil
+            }
+        }
+    }
+
+    // MARK: - Multi-Select Action Bar
+
+    private var multiSelectActionBar: some View {
+        let selectedActiveCount = appState.activeMods.filter {
+            appState.selectedModIDs.contains($0.uuid) && !$0.isBasicGameModule
+        }.count
+        let selectedInactiveCount = appState.inactiveMods.filter {
+            appState.selectedModIDs.contains($0.uuid)
+        }.count
+
+        return HStack(spacing: 8) {
+            Text("\(appState.selectedModIDs.count) selected")
+                .font(.caption.bold())
+
+            Spacer()
+
+            if selectedInactiveCount > 0 {
+                Button("Activate \(selectedInactiveCount)") {
+                    appState.activateSelectedMods()
+                }
+                .font(.caption2)
+                .buttonStyle(.bordered)
+                .help("Activate all selected inactive mods")
+            }
+
+            if selectedActiveCount > 0 {
+                Button("Deactivate \(selectedActiveCount)") {
+                    appState.deactivateSelectedMods()
+                }
+                .font(.caption2)
+                .buttonStyle(.bordered)
+                .help("Deactivate all selected active mods")
+            }
+
+            Button("Clear") {
+                appState.selectedModIDs.removeAll()
+            }
+            .font(.caption2)
+            .buttonStyle(.plain)
+            .help("Clear multi-selection")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.accentColor.opacity(0.08))
     }
 
     // MARK: - Warnings Banner
@@ -139,6 +199,18 @@ struct ModListView: View {
                             .help("Delete the ModCrashSanityCheck directory to prevent the game from deactivating your mods on launch")
                         }
 
+                        if case .activateDependencies(let modUUID) = warning.suggestedAction {
+                            Button("Activate Deps") {
+                                if let mod = appState.activeMods.first(where: { $0.uuid == modUUID }) {
+                                    let count = appState.activateMissingDependencies(for: mod)
+                                    appState.statusMessage = "Activated \(count) missing dependency(ies)"
+                                }
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.bordered)
+                            .help("Activate the missing dependencies from the inactive mod list")
+                        }
+
                         if case .restoreModSettings = warning.suggestedAction {
                             Button("Restore Backup") {
                                 Task { await appState.restoreFromLatestBackup() }
@@ -180,6 +252,14 @@ struct ModListView: View {
                     Button("Deactivate All") { appState.deactivateAll() }
                         .help("Move all active mods (except the base game module) to the inactive list")
                     Divider()
+                    Button("Activate Missing Dependencies") {
+                        let count = appState.activateAllMissingDependencies()
+                        if count == 0 {
+                            appState.statusMessage = "No missing dependencies found in inactive mods"
+                        }
+                    }
+                    .help("Find and activate all missing dependencies from the inactive mod list")
+                    Divider()
                     Button("Smart Sort (Tier + Dependencies)") { appState.smartSort() }
                         .help("Sort by the 5-tier community convention, then apply dependency ordering within each tier. Uncategorized mods are placed in the middle.")
                     Button("Sort by Dependencies Only") { appState.autoSortByDependencies() }
@@ -194,13 +274,24 @@ struct ModListView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            List(selection: $appState.selectedModID) {
+            List(selection: $appState.selectedModIDs) {
                 ForEach(filteredActiveMods) { mod in
                     ModRowView(mod: mod, isActive: true)
                         .tag(mod.uuid)
+                        .draggable(mod.uuid)
                         .contextMenu {
                             if !mod.isBasicGameModule {
                                 Button("Deactivate") { appState.deactivateMod(mod) }
+                            }
+                            if appState.selectedModIDs.count > 1 {
+                                let count = appState.activeMods.filter {
+                                    appState.selectedModIDs.contains($0.uuid) && !$0.isBasicGameModule
+                                }.count
+                                if count > 0 {
+                                    Button("Deactivate \(count) Selected") {
+                                        appState.deactivateSelectedMods()
+                                    }
+                                }
                             }
                             Divider()
                             Button("Copy UUID") {
@@ -220,6 +311,26 @@ struct ModListView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            .dropDestination(for: String.self) { uuids, _ in
+                var activated = 0
+                for uuid in uuids {
+                    if let mod = appState.inactiveMods.first(where: { $0.uuid == uuid }) {
+                        appState.activateMod(mod)
+                        activated += 1
+                    }
+                }
+                return activated > 0
+            } isTargeted: { targeted in
+                activeDropTargeted = targeted
+            }
+            .overlay {
+                if activeDropTargeted {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.green, lineWidth: 2)
+                        .padding(2)
+                        .allowsHitTesting(false)
+                }
+            }
         }
     }
 
@@ -236,12 +347,23 @@ struct ModListView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            List(selection: $appState.selectedModID) {
+            List(selection: $appState.selectedModIDs) {
                 ForEach(filteredInactiveMods) { mod in
                     ModRowView(mod: mod, isActive: false)
                         .tag(mod.uuid)
+                        .draggable(mod.uuid)
                         .contextMenu {
                             Button("Activate") { appState.activateMod(mod) }
+                            if appState.selectedModIDs.count > 1 {
+                                let count = appState.inactiveMods.filter {
+                                    appState.selectedModIDs.contains($0.uuid)
+                                }.count
+                                if count > 0 {
+                                    Button("Activate \(count) Selected") {
+                                        appState.activateSelectedMods()
+                                    }
+                                }
+                            }
                             Divider()
                             Button("Copy UUID") {
                                 NSPasteboard.general.clearContents()
@@ -257,6 +379,27 @@ struct ModListView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            .dropDestination(for: String.self) { uuids, _ in
+                var deactivated = 0
+                for uuid in uuids {
+                    if let mod = appState.activeMods.first(where: { $0.uuid == uuid }),
+                       !mod.isBasicGameModule {
+                        appState.deactivateMod(mod)
+                        deactivated += 1
+                    }
+                }
+                return deactivated > 0
+            } isTargeted: { targeted in
+                inactiveDropTargeted = targeted
+            }
+            .overlay {
+                if inactiveDropTargeted {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary, lineWidth: 2)
+                        .padding(2)
+                        .allowsHitTesting(false)
+                }
+            }
         }
     }
 
@@ -264,7 +407,9 @@ struct ModListView: View {
 
     @ViewBuilder
     private var modDetailPanel: some View {
-        if let mod = appState.selectedMod {
+        if appState.selectedModIDs.count > 1 {
+            multiSelectDetailPanel
+        } else if let mod = appState.selectedMod {
             ModDetailView(mod: mod)
         } else {
             VStack {
@@ -275,6 +420,52 @@ struct ModListView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var multiSelectDetailPanel: some View {
+        let selectedActive = appState.activeMods.filter { appState.selectedModIDs.contains($0.uuid) }
+        let selectedInactive = appState.inactiveMods.filter { appState.selectedModIDs.contains($0.uuid) }
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("\(appState.selectedModIDs.count) Mods Selected")
+                    .font(.title2.bold())
+
+                if !selectedActive.isEmpty {
+                    Text("\(selectedActive.count) active")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+                if !selectedInactive.isEmpty {
+                    Text("\(selectedInactive.count) inactive")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Divider()
+
+                ForEach(selectedActive + selectedInactive) { mod in
+                    HStack {
+                        Image(systemName: selectedActive.contains(where: { $0.uuid == mod.uuid })
+                              ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selectedActive.contains(where: { $0.uuid == mod.uuid })
+                                             ? .green : .secondary)
+                        VStack(alignment: .leading) {
+                            Text(mod.name)
+                                .font(.body.bold())
+                            if mod.author != "Unknown" {
+                                Text(mod.author)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+            .padding()
         }
     }
 

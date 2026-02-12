@@ -161,39 +161,113 @@ struct ModDetailView: View {
 
     private var dependenciesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Dependencies")
-                .font(.headline)
-                .help("Mods that must be active and loaded before this mod for it to work correctly")
+            HStack {
+                Text("Dependencies")
+                    .font(.headline)
+                    .help("Mods that must be active and loaded before this mod for it to work correctly")
 
-            let missing = appState.missingDependencies(for: mod)
+                Spacer()
 
-            ForEach(mod.dependencies) { dep in
-                HStack {
-                    let isMissing = missing.contains(where: { $0.uuid == dep.uuid })
-                    Image(systemName: isMissing ?
-                          "xmark.circle.fill" : "checkmark.circle.fill")
-                        .foregroundStyle(isMissing ? .red : .green)
-                        .help(isMissing ? "This dependency is missing or inactive" : "This dependency is satisfied")
-
-                    VStack(alignment: .leading) {
-                        Text(dep.name.isEmpty ? dep.uuid : dep.name)
-                            .font(.body)
-                        if !dep.folder.isEmpty {
-                            Text(dep.folder)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                let missing = appState.missingDependencies(for: mod)
+                let activatable = missing.filter { dep in
+                    appState.inactiveMods.contains(where: { $0.uuid == dep.uuid })
+                }
+                if !activatable.isEmpty {
+                    Button("Activate Missing") {
+                        let count = appState.activateMissingDependencies(for: mod)
+                        appState.statusMessage = "Activated \(count) missing dependency(ies)"
                     }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Activate \(activatable.count) missing dependency(ies) from the inactive mod list")
                 }
             }
 
-            if !missing.isEmpty {
-                Text("Missing \(missing.count) required mod(s)")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .help("Install and activate these mods, then re-sort your load order")
+            directDependenciesList
+
+            // Transitive dependency tree (shown when there are nested deps)
+            let transitive = appState.transitiveDependencies(for: mod)
+            if transitive.contains(where: { $0.depth > 0 }) {
+                transitiveDependencyTree(transitive)
             }
         }
+    }
+
+    private var directDependenciesList: some View {
+        let missing = appState.missingDependencies(for: mod)
+
+        return ForEach(mod.dependencies) { dep in
+            HStack {
+                let isMissing = missing.contains(where: { $0.uuid == dep.uuid })
+                Image(systemName: isMissing ?
+                      "xmark.circle.fill" : "checkmark.circle.fill")
+                    .foregroundStyle(isMissing ? .red : .green)
+                    .help(isMissing ? "This dependency is missing or inactive" : "This dependency is satisfied")
+
+                VStack(alignment: .leading) {
+                    Text(dep.name.isEmpty ? dep.uuid : dep.name)
+                        .font(.body)
+                    if !dep.folder.isEmpty {
+                        Text(dep.folder)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func transitiveDependencyTree(
+        _ deps: [(depth: Int, dependency: ModDependency, resolved: ModInfo?)]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Dependency Tree")
+                .font(.subheadline.bold())
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
+                .help("Full transitive dependency chain — shows nested dependencies required by this mod's direct dependencies")
+
+            ForEach(Array(deps.enumerated()), id: \.offset) { _, entry in
+                let activeUUIDs = Set(appState.activeMods.map(\.uuid))
+                let isActive = activeUUIDs.contains(entry.dependency.uuid)
+                let name = entry.dependency.name.isEmpty ? entry.dependency.uuid : entry.dependency.name
+                HStack(spacing: 4) {
+                    // Indentation based on depth
+                    if entry.depth > 0 {
+                        Text(String(repeating: "  ", count: entry.depth))
+                            .font(.caption.monospaced())
+                        Text("└")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Image(systemName: isActive ? "checkmark.circle.fill" : "xmark.circle")
+                        .font(.caption2)
+                        .foregroundStyle(isActive ? .green : .red)
+
+                    Text(name)
+                        .font(.caption)
+                        .lineLimit(1)
+
+                    if entry.resolved == nil {
+                        Text("(not installed)")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .help(isActive
+                    ? "\(name) is active at position \(activePosition(for: entry.dependency.uuid))"
+                    : "\(name) is not in the active load order")
+            }
+        }
+    }
+
+    private func activePosition(for uuid: String) -> String {
+        if let index = appState.activeMods.firstIndex(where: { $0.uuid == uuid }) {
+            return "#\(index + 1)"
+        }
+        return "N/A"
     }
 
     // MARK: - Conflicts

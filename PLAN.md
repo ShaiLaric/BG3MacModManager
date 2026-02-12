@@ -45,12 +45,12 @@ Parse the `<Conflicts>` node from `meta.lsx` and warn when conflicting mods are 
 - `Views/ModListView.swift` — added "Delete Folder" and "Restore Backup" action buttons in warnings banner
 - `Views/ContentView.swift` — added external modsettings.lsx change detection alert dialog
 
-### Phase 4: Enhanced UX (P2)
+### Phase 4: Enhanced UX (P2) [DONE]
 
-- Inline dependency status indicators on mod rows
-- Transitive dependency tree visualization
-- "Activate Missing Dependencies" one-click action
-- Multi-select drag-and-drop
+- Inline dependency status indicators on mod rows (link icon with red/yellow/green states)
+- Transitive dependency tree visualization (depth-first tree in detail panel)
+- "Activate Missing Dependencies" one-click action (per-mod button + global menu item + per-warning button)
+- Multi-select drag-and-drop (Cmd+Click/Shift+Click, cross-pane drag, multi-select action bar, group context menus)
 
 ### Phase 5: Community Features (P3)
 
@@ -139,17 +139,53 @@ game to deactivate externally-managed mods. BG3MM auto-deletes this folder.
 - Detect on launch: compare modsettings.lsx against last known export
 - Prompt to restore from auto-backup if they differ
 
-### 6. Enhanced Dependency Visualization [Phase 4]
+### 6. Enhanced Dependency Visualization [Phase 4 - DONE]
 
-- Inline dependency status icons on mod rows
-- Transitive dependency tree in detail panel
-- "Activate Missing Dependencies" action
+**Implemented:**
+- **Inline dependency icons on ModRowView**: compact link icon for active mods with dependencies
+  - Red `link.badge.plus` = missing dependencies
+  - Yellow `arrow.up.arrow.down` = dependency load order issue
+  - Green `link` = all dependencies satisfied and in correct order
+- **Transitive dependency tree in ModDetailView**: depth-first tree view with indentation
+  - Shows nested dependencies from direct deps → their deps → etc.
+  - Each node shows active/inactive status and position in load order
+  - Only displayed when there are nested (depth > 0) transitive deps
+- **"Activate Missing Dependencies" action** (three entry points):
+  - Per-mod button in ModDetailView dependencies section header
+  - Global menu item in active mods ellipsis menu
+  - Per-warning "Activate Deps" button in warnings banner
+  - Inserts activated deps before the dependent mod for correct load order
+  - Iterates transitively until all activatable deps are resolved
+- **New `activateDependencies` suggested action** in ModWarning for deps available in inactive list
+- **Helper methods in AppState**: `hasMissingDependencies()`, `hasDependencyOrderIssue()`,
+  `transitiveDependencies()`, `activateMissingDependencies(for:)`, `activateAllMissingDependencies()`
 
-### 7. Drag-and-Drop Improvements [Phase 4]
+**Modified files:**
+- `App/AppState.swift` — dependency helpers, multi-select state, activate/deactivate missing deps
+- `Models/ModWarning.swift` — added `.activateDependencies(modUUID:)` suggested action
+- `Services/ModValidationService.swift` — smarter missing dep warnings (distinguish activatable vs not installed)
+- `Views/ModRowView.swift` — inline dependency status icon
+- `Views/ModDetailView.swift` — "Activate Missing" button, transitive dependency tree
 
-- Multi-select (Cmd+Click, Shift+Click)
-- Group drag
-- Cross-pane drag with position targeting
+### 7. Drag-and-Drop Improvements [Phase 4 - DONE]
+
+**Implemented:**
+- **Multi-select**: `List(selection:)` now binds to `Set<String>` (`selectedModIDs`) enabling native
+  Cmd+Click and Shift+Click multi-selection in both active and inactive lists
+- **Multi-select action bar**: appears when 2+ mods selected, shows count and bulk Activate/Deactivate buttons
+- **Multi-select detail panel**: when 2+ mods selected, detail panel shows selection summary
+- **Group context menus**: right-click shows "Deactivate N Selected" / "Activate N Selected" options
+- **Cross-pane drag**: `.draggable(mod.uuid)` on each row + `.dropDestination(for: String.self)` on each list
+  - Drag from inactive → active list = activate
+  - Drag from active → inactive list = deactivate
+  - Visual drop targeting border (green for active, gray for inactive)
+- **Group drag within active list**: `.onMove` works with the Set<String> selection for moving multiple items
+- **Selection sync**: `onChange(of: selectedModIDs)` keeps `selectedModID` in sync for detail panel
+
+**Modified files:**
+- `App/AppState.swift` — `selectedModIDs: Set<String>`, `activateSelectedMods()`, `deactivateSelectedMods()`,
+  `moveSelectedActiveMods(to:)`, updated `selectedMod` computed property
+- `Views/ModListView.swift` — multi-select lists, action bar, cross-pane drag-drop, multi-select detail panel
 
 ### 8. Load Order Sharing [Phase 5]
 

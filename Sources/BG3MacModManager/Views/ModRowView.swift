@@ -67,6 +67,11 @@ struct ModRowView: View {
 
             Spacer()
 
+            // Inline dependency status indicator (for active mods with dependencies)
+            if isActive && !mod.dependencies.isEmpty && !mod.isBasicGameModule {
+                dependencyStatusIcon
+            }
+
             // Warnings (severity-aware)
             let modWarnings = appState.warnings(for: mod)
             if !modWarnings.isEmpty {
@@ -98,6 +103,29 @@ struct ModRowView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// Compact dependency health indicator for active mod rows.
+    @ViewBuilder
+    private var dependencyStatusIcon: some View {
+        let hasMissing = appState.hasMissingDependencies(mod)
+        let hasOrderIssue = appState.hasDependencyOrderIssue(mod)
+        if hasMissing {
+            Image(systemName: "link.badge.plus")
+                .font(.caption2)
+                .foregroundStyle(.red)
+                .help("Missing dependencies — activate required mods or use 'Activate Missing Dependencies' from the menu")
+        } else if hasOrderIssue {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.caption2)
+                .foregroundStyle(.yellow)
+                .help("Dependency loads after this mod — use Smart Sort or Auto-Sort to fix load order")
+        } else {
+            Image(systemName: "link")
+                .font(.caption2)
+                .foregroundStyle(.green.opacity(0.6))
+                .help("All \(mod.dependencies.count) dependency(ies) satisfied and in correct load order")
+        }
     }
 
     private func colorForSeverity(_ severity: ModWarning.Severity) -> Color {

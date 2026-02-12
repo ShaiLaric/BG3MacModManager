@@ -15,7 +15,7 @@ final class ModValidationService {
         var warnings: [ModWarning] = []
 
         warnings.append(contentsOf: checkDuplicateUUIDs(activeMods: activeMods, inactiveMods: inactiveMods))
-        warnings.append(contentsOf: checkMissingDependencies(activeMods: activeMods))
+        warnings.append(contentsOf: checkMissingDependencies(activeMods: activeMods, inactiveMods: inactiveMods))
         warnings.append(contentsOf: checkDependencyLoadOrder(activeMods: activeMods))
         warnings.append(contentsOf: checkCircularDependencies(activeMods: activeMods))
         warnings.append(contentsOf: checkConflictingMods(activeMods: activeMods))
@@ -109,8 +109,9 @@ final class ModValidationService {
     }
 
     /// Check for missing dependencies among active mods.
-    private func checkMissingDependencies(activeMods: [ModInfo]) -> [ModWarning] {
+    private func checkMissingDependencies(activeMods: [ModInfo], inactiveMods: [ModInfo]) -> [ModWarning] {
         let activeUUIDs = Set(activeMods.map(\.uuid))
+        let inactiveUUIDs = Set(inactiveMods.map(\.uuid))
         var warnings: [ModWarning] = []
 
         for mod in activeMods where !mod.isBasicGameModule {
@@ -119,13 +120,18 @@ final class ModValidationService {
 
                 if !activeUUIDs.contains(dep.uuid) {
                     let depName = dep.name.isEmpty ? dep.uuid : dep.name
+                    let canActivate = inactiveUUIDs.contains(dep.uuid)
                     warnings.append(ModWarning(
                         severity: .warning,
                         category: .missingDependency,
                         message: "\(mod.name) requires \(depName)",
-                        detail: "Dependency '\(depName)' (UUID: \(dep.uuid)) is not in the active mod list.",
+                        detail: canActivate
+                            ? "Dependency '\(depName)' is inactive. Activate it to resolve this warning."
+                            : "Dependency '\(depName)' (UUID: \(dep.uuid)) is not installed.",
                         affectedModUUIDs: [mod.uuid],
-                        suggestedAction: .installDependency(name: dep.name)
+                        suggestedAction: canActivate
+                            ? .activateDependencies(modUUID: mod.uuid)
+                            : .installDependency(name: dep.name)
                     ))
                 }
             }
