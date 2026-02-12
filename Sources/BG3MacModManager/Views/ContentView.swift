@@ -27,6 +27,30 @@ struct ContentView: View {
     }
 
     var body: some View {
+        mainContent
+            .overlay(alignment: .bottom) {
+                statusBar
+            }
+            .onDrop(of: Self.acceptedDropTypes, isTargeted: $isDropTargeted) { providers in
+                handleFileDrop(providers)
+                return true
+            }
+            .overlay {
+                dropTargetOverlay
+            }
+            .onChange(of: appState.navigateToSidebarItem) { _, target in
+                if let target = target {
+                    if target == "scriptExtender" {
+                        selectedSidebarItem = .scriptExtender
+                    }
+                    appState.navigateToSidebarItem = nil
+                }
+            }
+    }
+
+    // MARK: - Main Content (split out to reduce type-checker complexity)
+
+    private var mainContent: some View {
         NavigationSplitView {
             sidebar
         } detail: {
@@ -74,32 +98,6 @@ struct ContentView: View {
         } message: {
             Text("The modsettings.lsx file has been modified outside this app (possibly by the game). Would you like to restore your last saved load order from backup?")
         }
-        .overlay(alignment: .bottom) {
-            statusBar
-        }
-        .onDrop(of: Self.acceptedDropTypes, isTargeted: $isDropTargeted) { providers in
-            handleFileDrop(providers)
-            return true
-        }
-        .overlay {
-            if isDropTargeted {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.accentColor, lineWidth: 3)
-                        .padding(4)
-                    VStack(spacing: 8) {
-                        Image(systemName: "arrow.down.doc")
-                            .font(.system(size: 36))
-                        Text("Drop to Import Mods")
-                            .font(.headline)
-                    }
-                    .foregroundStyle(Color.accentColor)
-                    .padding()
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-                .allowsHitTesting(false)
-            }
-        }
         .alert(
             "Activate Imported Mods?",
             isPresented: $appState.showImportActivation
@@ -117,16 +115,28 @@ struct ContentView: View {
             let names = appState.lastImportedMods.map(\.name).joined(separator: ", ")
             Text("\(appState.lastImportedMods.count) new mod(s) imported: \(names)\n\nWould you like to add them to your active load order?")
         }
-        .onChange(of: appState.navigateToSidebarItem) { _, target in
-            if let target = target {
-                switch target {
-                case "scriptExtender":
-                    selectedSidebarItem = .scriptExtender
-                default:
-                    break
+    }
+
+    // MARK: - Drop Target Overlay
+
+    @ViewBuilder
+    private var dropTargetOverlay: some View {
+        if isDropTargeted {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.accentColor, lineWidth: 3)
+                    .padding(4)
+                VStack(spacing: 8) {
+                    Image(systemName: "arrow.down.doc")
+                        .font(.system(size: 36))
+                    Text("Drop to Import Mods")
+                        .font(.headline)
                 }
-                appState.navigateToSidebarItem = nil
+                .foregroundStyle(Color.accentColor)
+                .padding()
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
+            .allowsHitTesting(false)
         }
     }
 
