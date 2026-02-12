@@ -118,6 +118,17 @@ struct ModListView: View {
                             .buttonStyle(.bordered)
                             .help("Open duplicate mod resolver")
                         }
+
+                        if warning.category == .conflictingMods,
+                           case .deactivateMod(let uuid) = warning.suggestedAction,
+                           let conflictMod = appState.activeMods.first(where: { $0.uuid == uuid }) {
+                            Button("Deactivate \(conflictMod.name)") {
+                                appState.deactivateMod(conflictMod)
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.bordered)
+                            .help("Deactivate the conflicting mod to resolve this conflict. You can re-activate it later from the inactive list.")
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)

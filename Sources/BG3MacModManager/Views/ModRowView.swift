@@ -40,6 +40,7 @@ struct ModRowView: View {
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Color.orange, in: RoundedRectangle(cornerRadius: 3))
+                            .help("This mod requires bg3se-macos (Script Extender) to be deployed. The game will crash without it.")
                     }
                 }
 
@@ -58,6 +59,7 @@ struct ModRowView: View {
                         Text("(no metadata)")
                             .font(.caption)
                             .foregroundStyle(.orange)
+                            .help("This mod's PAK contains no meta.lsx and no info.json was found. UUID, version, and dependencies are unknown.")
                     }
                 }
             }

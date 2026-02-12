@@ -54,6 +54,7 @@ struct ModWarning: Identifiable, Equatable {
         case missingDependency   = "Missing Dependency"
         case wrongLoadOrder      = "Wrong Load Order"
         case circularDependency  = "Circular Dependency"
+        case conflictingMods     = "Mod Conflict"
         case phantomMod          = "Phantom Mod"
         case seRequired          = "Script Extender Required"
         case noMetadata          = "No Metadata"

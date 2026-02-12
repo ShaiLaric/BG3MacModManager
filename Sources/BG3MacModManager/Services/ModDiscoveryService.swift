@@ -85,6 +85,7 @@ final class ModDiscoveryService {
                     md5: desc.md5,
                     tags: [],
                     dependencies: [],
+                    conflicts: [],
                     requiresScriptExtender: false,
                     pakFileName: nil,
                     pakFilePath: nil,
@@ -239,6 +240,7 @@ final class ModDiscoveryService {
             md5: modEntry.MD5 ?? "",
             tags: [],
             dependencies: dependencies,
+            conflicts: [],
             requiresScriptExtender: requiresSE,
             pakFileName: pakFilename,
             pakFilePath: pakURL,
@@ -286,6 +288,22 @@ final class ModDiscoveryService {
             }
         }
 
+        // Parse Conflicts
+        var conflicts: [ModDependency] = []
+        if let conflictNodes = try? document.nodes(forXPath: "//node[@id='Conflicts']/children/node[@id='ModuleShortDesc']") {
+            for node in conflictNodes {
+                guard let elem = node as? XMLElement,
+                      let conflictUUID = elem.lsxAttribute("UUID") else { continue }
+                conflicts.append(ModDependency(
+                    uuid: conflictUUID,
+                    folder: elem.lsxAttribute("Folder") ?? "",
+                    name: elem.lsxAttribute("Name") ?? "",
+                    version64: Int64(elem.lsxAttribute("Version64") ?? "0") ?? 0,
+                    md5: elem.lsxAttribute("MD5") ?? ""
+                ))
+            }
+        }
+
         let requiresSE = PakReader.containsScriptExtender(at: pakURL)
 
         return ModInfo(
@@ -298,6 +316,7 @@ final class ModDiscoveryService {
             md5: md5,
             tags: tags,
             dependencies: dependencies,
+            conflicts: conflicts,
             requiresScriptExtender: requiresSE,
             pakFileName: pakFilename,
             pakFilePath: pakURL,

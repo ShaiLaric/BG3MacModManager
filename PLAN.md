@@ -17,14 +17,18 @@ Full implementation of tiered load order sorting.
 - `Views/ModRowView.swift` — added colored tier badge pills next to mod names
 - `Views/ModDetailView.swift` — added category section with picker for user overrides
 
-### Phase 2: Conflict Detection (P0)
+### Phase 2: Conflict Detection [DONE]
 
 Parse the `<Conflicts>` node from `meta.lsx` and warn when conflicting mods are both active.
 
-- Add `conflicts: [ModDependency]` to `ModInfo`
-- Parse Conflicts in `ModDiscoveryService.parseMetaLsx()`
-- Add `.conflictingMods` category to `ModWarning`
-- Add `checkConflictingMods()` to `ModValidationService`
+**Modified files:**
+- `Models/ModInfo.swift` — added `conflicts: [ModDependency]` field
+- `Models/ModWarning.swift` — added `.conflictingMods` warning category
+- `Services/ModDiscoveryService.swift` — parses `<Conflicts>` node from meta.lsx alongside dependencies
+- `Services/ModValidationService.swift` — added `checkConflictingMods()` with deduplicated pair detection
+- `Views/ModDetailView.swift` — added "Declared Conflicts" section showing conflict status per mod
+- `Views/ModListView.swift` — added "Deactivate" action button for conflict warnings in the banner
+- `Views/ModRowView.swift` — added tooltips for SE badge and no-metadata label
 
 ### Phase 3: Game Compatibility (P1)
 

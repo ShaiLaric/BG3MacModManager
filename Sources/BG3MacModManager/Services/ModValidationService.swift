@@ -18,6 +18,7 @@ final class ModValidationService {
         warnings.append(contentsOf: checkMissingDependencies(activeMods: activeMods))
         warnings.append(contentsOf: checkDependencyLoadOrder(activeMods: activeMods))
         warnings.append(contentsOf: checkCircularDependencies(activeMods: activeMods))
+        warnings.append(contentsOf: checkConflictingMods(activeMods: activeMods))
         warnings.append(contentsOf: checkPhantomMods(activeMods: activeMods))
         warnings.append(contentsOf: checkScriptExtenderRequirements(activeMods: activeMods, seStatus: seStatus))
         warnings.append(contentsOf: checkNoMetadataMods(activeMods: activeMods, inactiveMods: inactiveMods))
@@ -214,6 +215,43 @@ final class ModValidationService {
             detail: "These mods form a dependency cycle: \(cycleNames). This may prevent the game from loading.",
             affectedModUUIDs: Array(cycleMods)
         )]
+    }
+
+    /// Check for mods that declare conflicts with other active mods via meta.lsx <Conflicts> node.
+    /// Emits one warning per unique conflict pair to avoid duplicates.
+    private func checkConflictingMods(activeMods: [ModInfo]) -> [ModWarning] {
+        let activeUUIDs = Set(activeMods.map(\.uuid))
+        let modsByUUID = Dictionary(
+            activeMods.map { ($0.uuid, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        // Track pairs we've already warned about so we don't duplicate (A conflicts B == B conflicts A)
+        var warnedPairs: Set<String> = []
+        var warnings: [ModWarning] = []
+
+        for mod in activeMods {
+            for conflict in mod.conflicts {
+                guard activeUUIDs.contains(conflict.uuid) else { continue }
+
+                // Canonical pair key: sorted UUIDs
+                let pairKey = [mod.uuid, conflict.uuid].sorted().joined(separator: "|")
+                guard !warnedPairs.contains(pairKey) else { continue }
+                warnedPairs.insert(pairKey)
+
+                let conflictName = modsByUUID[conflict.uuid]?.name ?? (conflict.name.isEmpty ? conflict.uuid : conflict.name)
+                warnings.append(ModWarning(
+                    severity: .warning,
+                    category: .conflictingMods,
+                    message: "\(mod.name) conflicts with \(conflictName)",
+                    detail: "\(mod.name) declares a conflict with \(conflictName). Having both active may cause issues — check the mod pages for compatibility notes.",
+                    affectedModUUIDs: [mod.uuid, conflict.uuid],
+                    suggestedAction: .deactivateMod(uuid: conflict.uuid)
+                ))
+            }
+        }
+
+        return warnings
     }
 
     /// Check for phantom mods (in active list but no PAK file on disk).

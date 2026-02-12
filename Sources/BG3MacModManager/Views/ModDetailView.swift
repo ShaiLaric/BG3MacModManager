@@ -34,6 +34,12 @@ struct ModDetailView: View {
                     dependenciesSection
                 }
 
+                // Conflicts
+                if !mod.conflicts.isEmpty {
+                    Divider()
+                    conflictsSection
+                }
+
                 // Tags
                 if !mod.tags.isEmpty {
                     Divider()
@@ -181,6 +187,59 @@ struct ModDetailView: View {
                 Text("Missing \(missing.count) required mod(s)")
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+        }
+    }
+
+    // MARK: - Conflicts
+
+    private var conflictsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Declared Conflicts")
+                .font(.headline)
+                .help("Conflicts declared by this mod in its meta.lsx metadata. If a conflicting mod is also active, it may cause issues in-game.")
+
+            let activeUUIDs = Set(appState.activeMods.map(\.uuid))
+
+            ForEach(mod.conflicts) { conflict in
+                let isActive = activeUUIDs.contains(conflict.uuid)
+                HStack {
+                    Image(systemName: isActive ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(isActive ? .yellow : .green)
+                        .help(isActive
+                            ? "This conflicting mod is currently active — having both enabled may cause issues"
+                            : "This conflicting mod is not active — no conflict at this time")
+
+                    VStack(alignment: .leading) {
+                        Text(conflict.name.isEmpty ? conflict.uuid : conflict.name)
+                            .font(.body)
+                        if !conflict.folder.isEmpty {
+                            Text(conflict.folder)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    if isActive {
+                        Text("Active")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.yellow, in: RoundedRectangle(cornerRadius: 3))
+                            .help("This mod is in your active load order and conflicts with \(mod.name). Consider deactivating one of them.")
+                    }
+                }
+            }
+
+            let activeConflictCount = mod.conflicts.filter { activeUUIDs.contains($0.uuid) }.count
+            if activeConflictCount > 0 {
+                Text("\(activeConflictCount) active conflict\(activeConflictCount == 1 ? "" : "s") detected")
+                    .font(.caption)
+                    .foregroundStyle(.yellow)
+                    .help("Deactivate one of the conflicting mods, or check their mod pages for compatibility patches.")
             }
         }
     }
