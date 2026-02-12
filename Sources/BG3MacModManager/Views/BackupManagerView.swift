@@ -93,6 +93,7 @@ struct BackupManagerView: View {
                 createBackup()
             }
             .buttonStyle(.borderedProminent)
+            .help("Create a backup of modsettings.lsx")
             Spacer()
         }
     }

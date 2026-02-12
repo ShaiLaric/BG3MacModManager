@@ -68,6 +68,7 @@ struct ModListView: View {
                 .background(criticalCount > 0 ? Color.red.opacity(0.1) : Color.yellow.opacity(0.1))
             }
             .buttonStyle(.plain)
+            .help("Show or hide validation warnings")
 
             // Expanded warning list
             if warningsExpanded {
@@ -106,6 +107,7 @@ struct ModListView: View {
                             }
                             .font(.caption2)
                             .buttonStyle(.bordered)
+                            .help("Sort mods by dependency order")
                         }
 
                         if warning.category == .duplicateUUID {
@@ -114,6 +116,7 @@ struct ModListView: View {
                             }
                             .font(.caption2)
                             .buttonStyle(.bordered)
+                            .help("Open duplicate mod resolver")
                         }
                     }
                     .padding(.horizontal, 12)

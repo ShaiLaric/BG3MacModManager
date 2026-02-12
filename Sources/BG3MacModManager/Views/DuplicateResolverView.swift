@@ -31,6 +31,7 @@ struct DuplicateResolverView: View {
                     appState.showDuplicateResolver = false
                 }
                 .keyboardShortcut(.defaultAction)
+                .help("Close the duplicate resolver")
             }
         }
         .padding(24)
