@@ -136,17 +136,31 @@ struct ModListView: View {
                     .font(.headline)
                     .foregroundStyle(.green)
                 Spacer()
+                Button {
+                    appState.smartSort()
+                } label: {
+                    Label("Smart Sort", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Sort mods by community load order tiers (Framework → Gameplay → Content → Visual → Late Loader), then by dependencies within each tier")
+
                 Menu {
                     Button("Activate All") { appState.activateAll() }
+                        .help("Move all inactive mods into the active load order")
                     Button("Deactivate All") { appState.deactivateAll() }
+                        .help("Move all active mods (except the base game module) to the inactive list")
                     Divider()
-                    Button("Sort by Dependencies") { appState.autoSortByDependencies() }
+                    Button("Smart Sort (Tier + Dependencies)") { appState.smartSort() }
+                        .help("Sort by the 5-tier community convention, then apply dependency ordering within each tier. Uncategorized mods are placed in the middle.")
+                    Button("Sort by Dependencies Only") { appState.autoSortByDependencies() }
+                        .help("Sort using only declared mod dependencies (topological sort). Does not consider category tiers.")
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Bulk actions")
+                .help("Bulk actions: activate/deactivate all mods, or sort the active load order")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

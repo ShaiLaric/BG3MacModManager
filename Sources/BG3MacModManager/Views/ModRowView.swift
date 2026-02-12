@@ -23,6 +23,16 @@ struct ModRowView: View {
                         .fontWeight(.medium)
                         .lineLimit(1)
 
+                    if let category = mod.category {
+                        Text(category.displayName)
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(category.color, in: RoundedRectangle(cornerRadius: 3))
+                            .help(category.tooltip)
+                    }
+
                     if mod.requiresScriptExtender {
                         Text("SE")
                             .font(.caption2.bold())
