@@ -107,6 +107,14 @@ struct ModListView: View {
                             .font(.caption2)
                             .buttonStyle(.bordered)
                         }
+
+                        if warning.category == .duplicateUUID {
+                            Button("Resolve...") {
+                                appState.detectDuplicateGroups()
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.bordered)
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
@@ -153,6 +161,12 @@ struct ModListView: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
                             }
+                            if mod.pakFilePath != nil {
+                                Divider()
+                                Button("Extract to Folder...") {
+                                    appState.extractMod(mod)
+                                }
+                            }
                         }
                 }
                 .onMove { source, destination in
@@ -186,6 +200,12 @@ struct ModListView: View {
                             Button("Copy UUID") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
+                            }
+                            if mod.pakFilePath != nil {
+                                Divider()
+                                Button("Extract to Folder...") {
+                                    appState.extractMod(mod)
+                                }
                             }
                         }
                 }
