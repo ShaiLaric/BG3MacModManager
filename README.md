@@ -50,25 +50,52 @@ Built with Swift and SwiftUI, this tool provides a first-class macOS experience 
 
 ## Building
 
+### Method 1: Xcode (Recommended for Development)
+
+1. Clone the repository:
 ```bash
-# Clone the repository
 git clone https://github.com/ShaiLaric/BG3MacModManager.git
 cd BG3MacModManager
+```
 
-# Build with Swift Package Manager
-swift build
-
-# Run
-swift run BG3MacModManager
-
-# Or open in Xcode
+2. Open in Xcode:
+```bash
 open Package.swift
 ```
 
-For release builds:
+3. Select the **"BG3MacModManager"** scheme from the scheme dropdown
+
+4. Build and run with **⌘R** (or just build with **⌘B**)
+
+Xcode will automatically create a proper `.app` bundle after building. The app will launch with full GUI support and appear in the Dock.
+
+### Method 2: Command Line Build Script (Distribution Builds)
+
+For creating universal binaries (Intel + Apple Silicon) with code signing for distribution:
+
 ```bash
-swift build -c release
+# Ad-hoc signing (for local use)
+./scripts/build-app.sh
+
+# Or sign with Developer ID for public distribution
+./scripts/build-app.sh --sign "Developer ID Application: Your Name (TEAMID)"
 ```
+
+The app bundle will be created at `build/BG3 Mac Mod Manager.app`.
+
+### Method 3: Direct SPM Build (Command-Line Only)
+
+For quick testing without a GUI app bundle:
+
+```bash
+# Build
+swift build
+
+# Run directly (background process, no Dock icon)
+swift run BG3MacModManager
+```
+
+**Note:** Direct `swift run` launches as a background process without appearing in the Dock or creating a proper .app bundle. Use Method 1 or 2 for full GUI experience.
 
 ## File Locations
 

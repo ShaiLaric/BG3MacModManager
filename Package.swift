@@ -10,10 +10,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "BG3MacModManager",
-            path: "Sources/BG3MacModManager",
-            resources: [
-                .copy("Info.plist")
-            ]
+            path: "Sources/BG3MacModManager"
         ),
         .testTarget(
             name: "BG3MacModManagerTests",
