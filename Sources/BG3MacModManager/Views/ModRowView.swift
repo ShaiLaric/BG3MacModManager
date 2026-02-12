@@ -14,6 +14,7 @@ struct ModRowView: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(width: 24, alignment: .trailing)
+                    .help("Load order position")
             }
 
             // Mod info

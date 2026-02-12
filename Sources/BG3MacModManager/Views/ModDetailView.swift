@@ -71,6 +71,7 @@ struct ModDetailView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.orange, in: RoundedRectangle(cornerRadius: 4))
+                        .help("This mod requires bg3se-macos (Script Extender) to function")
                 }
             }
 
@@ -162,14 +163,17 @@ struct ModDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Dependencies")
                 .font(.headline)
+                .help("Mods that must be active and loaded before this mod for it to work correctly")
 
             let missing = appState.missingDependencies(for: mod)
 
             ForEach(mod.dependencies) { dep in
                 HStack {
-                    Image(systemName: missing.contains(where: { $0.uuid == dep.uuid }) ?
+                    let isMissing = missing.contains(where: { $0.uuid == dep.uuid })
+                    Image(systemName: isMissing ?
                           "xmark.circle.fill" : "checkmark.circle.fill")
-                        .foregroundStyle(missing.contains(where: { $0.uuid == dep.uuid }) ? .red : .green)
+                        .foregroundStyle(isMissing ? .red : .green)
+                        .help(isMissing ? "This dependency is missing or inactive" : "This dependency is satisfied")
 
                     VStack(alignment: .leading) {
                         Text(dep.name.isEmpty ? dep.uuid : dep.name)
@@ -187,6 +191,7 @@ struct ModDetailView: View {
                 Text("Missing \(missing.count) required mod(s)")
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .help("Install and activate these mods, then re-sort your load order")
             }
         }
     }
