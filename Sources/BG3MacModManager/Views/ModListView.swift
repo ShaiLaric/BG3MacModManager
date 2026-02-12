@@ -136,11 +136,21 @@ struct ModListView: View {
                     .font(.headline)
                     .foregroundStyle(.green)
                 Spacer()
+                Button {
+                    appState.smartSort()
+                } label: {
+                    Label("Smart Sort", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Sort mods by category tier and dependencies")
+
                 Menu {
                     Button("Activate All") { appState.activateAll() }
                     Button("Deactivate All") { appState.deactivateAll() }
                     Divider()
-                    Button("Sort by Dependencies") { appState.autoSortByDependencies() }
+                    Button("Smart Sort (Tier + Dependencies)") { appState.smartSort() }
+                    Button("Sort by Dependencies Only") { appState.autoSortByDependencies() }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }

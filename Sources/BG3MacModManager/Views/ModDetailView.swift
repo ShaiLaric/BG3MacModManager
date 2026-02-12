@@ -11,6 +11,11 @@ struct ModDetailView: View {
                 // Header
                 header
 
+                // Category
+                if !mod.isBasicGameModule {
+                    categorySection
+                }
+
                 // Per-mod warnings
                 let modWarnings = appState.warnings(for: mod)
                 if !modWarnings.isEmpty {
@@ -73,6 +78,56 @@ struct ModDetailView: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
+    }
+
+    // MARK: - Category
+
+    private var categorySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Load Order Category")
+                .font(.headline)
+
+            HStack(spacing: 8) {
+                if let category = mod.category {
+                    Text(category.displayName)
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(category.color, in: RoundedRectangle(cornerRadius: 4))
+                } else {
+                    Text("Uncategorized")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Picker("", selection: categoryBinding) {
+                    Text("Auto-detect").tag(nil as ModCategory?)
+                    Divider()
+                    ForEach(ModCategory.allCases, id: \.self) { cat in
+                        Label(cat.displayName, systemImage: cat.icon)
+                            .tag(cat as ModCategory?)
+                    }
+                }
+                .frame(width: 150)
+                .help("Override the inferred category for smart sorting")
+            }
+
+            if appState.categoryService.override(for: mod.uuid) != nil {
+                Text("User override active")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private var categoryBinding: Binding<ModCategory?> {
+        Binding(
+            get: { appState.categoryService.override(for: mod.uuid) },
+            set: { appState.setCategoryOverride($0, for: mod) }
+        )
     }
 
     // MARK: - Metadata

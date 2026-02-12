@@ -66,6 +66,7 @@ final class AppState: ObservableObject {
     let validationService = ModValidationService()
     let textExportService = TextExportService()
     let archiveService = ArchiveService()
+    let categoryService = CategoryInferenceService()
 
     // MARK: - Initialization
 
@@ -94,8 +95,8 @@ final class AppState: ObservableObject {
     func refreshMods() async {
         do {
             let result = try discoveryService.discoverModsWithState()
-            activeMods = result.active
-            inactiveMods = result.inactive
+            activeMods = result.active.map { inferCategory(for: $0) }
+            inactiveMods = result.inactive.map { inferCategory(for: $0) }
             statusMessage = "Found \(activeMods.count) active, \(inactiveMods.count) inactive mods"
             runValidation()
             if !hasPerformedInitialDuplicateCheck {
@@ -625,6 +626,58 @@ final class AppState: ObservableObject {
             errorMessage = "Cannot auto-sort: circular dependencies detected. Resolve cycles first."
             showError = true
         }
+    }
+
+    /// Smart sort: groups mods by category tier, then applies dependency sort within each tier.
+    /// Mods without a category are placed after Tier 3 (content extensions) and before Tier 4 (visual).
+    func smartSort() {
+        let base = activeMods.filter { $0.isBasicGameModule }
+        let nonBase = activeMods.filter { !$0.isBasicGameModule }
+
+        // Group by tier (nil category goes into a synthetic middle tier)
+        var tiers: [Int: [ModInfo]] = [:]
+        for mod in nonBase {
+            let tierKey = mod.category?.rawValue ?? 3 // uncategorized sorts with content extensions
+            tiers[tierKey, default: []].append(mod)
+        }
+
+        var sorted: [ModInfo] = []
+        // Process tiers in order: 1, 2, 3, 4, 5
+        for tier in 1...5 {
+            guard let modsInTier = tiers[tier], !modsInTier.isEmpty else { continue }
+            // Apply topological sort within the tier for dependency correctness
+            if let tierSorted = validationService.topologicalSort(mods: modsInTier) {
+                sorted.append(contentsOf: tierSorted)
+            } else {
+                // Cycle within tier — fall back to original order
+                sorted.append(contentsOf: modsInTier)
+            }
+        }
+
+        activeMods = base + sorted
+        runValidation()
+
+        let categorized = nonBase.filter { $0.category != nil }.count
+        statusMessage = "Smart sort complete (\(categorized)/\(nonBase.count) mods categorized)"
+    }
+
+    /// Set a user category override for a mod and re-infer.
+    func setCategoryOverride(_ category: ModCategory?, for mod: ModInfo) {
+        categoryService.setOverride(category, for: mod.uuid)
+        // Re-apply inference to this mod in whichever list it's in
+        if let i = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) {
+            activeMods[i].category = category ?? categoryService.inferCategory(for: activeMods[i])
+        }
+        if let i = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) {
+            inactiveMods[i].category = category ?? categoryService.inferCategory(for: inactiveMods[i])
+        }
+    }
+
+    /// Infer category for a single mod using the category service.
+    private func inferCategory(for mod: ModInfo) -> ModInfo {
+        var m = mod
+        m.category = categoryService.inferCategory(for: mod)
+        return m
     }
 
     private func showError(_ error: Error) {

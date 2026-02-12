@@ -42,6 +42,9 @@ struct ModInfo: Identifiable, Codable, Equatable {
     /// Source of the metadata (how it was discovered).
     var metadataSource: MetadataSource
 
+    /// Inferred or user-assigned load order category for smart sorting.
+    var category: ModCategory? = nil
+
     // MARK: - Identifiable
 
     var id: String { uuid }
