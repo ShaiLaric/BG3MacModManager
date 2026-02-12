@@ -30,7 +30,7 @@ struct ModRowView: View {
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(category.color, in: RoundedRectangle(cornerRadius: 3))
-                            .help("Load order tier: \(category.displayName)")
+                            .help(category.tooltip)
                     }
 
                     if mod.requiresScriptExtender {

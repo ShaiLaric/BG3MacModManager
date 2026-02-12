@@ -48,4 +48,20 @@ enum ModCategory: Int, Codable, CaseIterable, Comparable {
         case .lateLoader:       return "arrow.down.to.line"
         }
     }
+
+    /// Detailed description for tooltips explaining what each tier means.
+    var tooltip: String {
+        switch self {
+        case .framework:
+            return "Tier 1 — Framework: Libraries and APIs that other mods depend on (e.g., ImpUI, Community Library, MCM). These load first so dependents can build on them."
+        case .gameplay:
+            return "Tier 2 — Gameplay: Mods that change game mechanics, add items, fix bugs, or tweak balance. Loads after frameworks so it can use their APIs."
+        case .contentExtension:
+            return "Tier 3 — Content: Mods that add new classes, subclasses, spells, feats, or races. Loads in the middle of the order."
+        case .visual:
+            return "Tier 4 — Visual: Cosmetic mods like hair, appearance, dyes, and textures. Loads late so visual changes aren't overwritten."
+        case .lateLoader:
+            return "Tier 5 — Late Loader: Compatibility patches and combiners (e.g., Compatibility Framework, Spell List Combiner). These load last to reconcile conflicts between earlier mods."
+        }
+    }
 }

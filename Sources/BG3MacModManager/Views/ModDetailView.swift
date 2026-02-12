@@ -86,6 +86,7 @@ struct ModDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Load Order Category")
                 .font(.headline)
+                .help("Determines where this mod is placed when using Smart Sort. Based on the BG3 community's 5-tier load order convention.")
 
             HStack(spacing: 8) {
                 if let category = mod.category {
@@ -95,10 +96,12 @@ struct ModDetailView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(category.color, in: RoundedRectangle(cornerRadius: 4))
+                        .help(category.tooltip)
                 } else {
                     Text("Uncategorized")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .help("No category detected from tags, name, or known-mods database. This mod will be sorted into the middle of the load order (with Content mods). Use the picker to assign a tier manually.")
                 }
 
                 Spacer()
@@ -112,13 +115,14 @@ struct ModDetailView: View {
                     }
                 }
                 .frame(width: 150)
-                .help("Override the inferred category for smart sorting")
+                .help("Manually set this mod's load order tier, overriding auto-detection. Choose \"Auto-detect\" to clear the override and let the app infer the category from tags and mod name.")
             }
 
             if appState.categoryService.override(for: mod.uuid) != nil {
                 Text("User override active")
                     .font(.caption2)
                     .foregroundStyle(.orange)
+                    .help("You have manually set this mod's category. It will not be auto-detected. Choose \"Auto-detect\" in the picker to remove this override.")
             }
         }
     }
