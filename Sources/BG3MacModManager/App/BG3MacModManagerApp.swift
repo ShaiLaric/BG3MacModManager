@@ -61,7 +61,12 @@ struct BG3MacModManagerApp: App {
         panel.title = "Import Mod"
         panel.allowedContentTypes = [
             .init(filenameExtension: "pak")!,
-            .init(filenameExtension: "zip")!
+            .init(filenameExtension: "zip")!,
+            .init(filenameExtension: "tar")!,
+            .init(filenameExtension: "gz")!,
+            .init(filenameExtension: "tgz")!,
+            .init(filenameExtension: "bz2")!,
+            .init(filenameExtension: "xz")!,
         ]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false

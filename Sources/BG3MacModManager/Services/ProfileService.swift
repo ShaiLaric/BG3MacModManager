@@ -119,3 +119,15 @@ final class ProfileService {
             .appendingPathComponent("\(sanitizedName)-\(profile.id.uuidString).json")
     }
 }
+
+// MARK: - Shared JSONEncoder
+
+extension JSONEncoder {
+    /// Pre-configured encoder matching the app's profile JSON format.
+    static var bg3PrettyPrinted: JSONEncoder {
+        let e = JSONEncoder()
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }
+}

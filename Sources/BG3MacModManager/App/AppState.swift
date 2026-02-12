@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UniformTypeIdentifiers
 
 /// Central observable state for the entire application.
 @MainActor
@@ -36,6 +37,10 @@ final class AppState: ObservableObject {
     /// Loading state.
     @Published var isLoading: Bool = false
 
+    /// ZIP export progress (0.0 to 1.0).
+    @Published var exportProgress: Double = 0
+    @Published var isExporting: Bool = false
+
     /// Validation warnings for the current mod configuration.
     @Published var warnings: [ModWarning] = []
 
@@ -59,6 +64,8 @@ final class AppState: ObservableObject {
     let seService = ScriptExtenderService()
     let launchService = GameLaunchService()
     let validationService = ModValidationService()
+    let textExportService = TextExportService()
+    let archiveService = ArchiveService()
 
     // MARK: - Initialization
 
@@ -303,20 +310,26 @@ final class AppState: ObservableObject {
 
     // MARK: - Import Mod
 
-    /// Import a mod from a file URL (ZIP or .pak).
+    /// Import a mod from a file URL (.pak, .zip, or supported archive format).
     func importMod(from url: URL) async {
         do {
             let modsFolder = FileLocations.modsFolder
             try FileLocations.ensureDirectoryExists(modsFolder)
 
-            if url.pathExtension.lowercased() == "zip" {
-                try await importZip(url)
-            } else if url.pathExtension.lowercased() == "pak" {
+            let ext = url.pathExtension.lowercased()
+
+            if ext == "pak" {
                 let destination = modsFolder.appendingPathComponent(url.lastPathComponent)
                 if FileManager.default.fileExists(atPath: destination.path) {
                     try FileManager.default.removeItem(at: destination)
                 }
                 try FileManager.default.copyItem(at: url, to: destination)
+            } else if ArchiveService.ArchiveFormat(
+                pathExtension: ext, fullFilename: url.lastPathComponent
+            ) != nil {
+                try await importArchive(url)
+            } else {
+                throw ArchiveService.ArchiveError.unsupportedFormat(ext)
             }
 
             await refreshMods()
@@ -326,18 +339,13 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func importZip(_ zipURL: URL) async throws {
+    private func importArchive(_ archiveURL: URL) async throws {
         let modsFolder = FileLocations.modsFolder
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        // Use ditto to extract ZIP on macOS (handles most ZIP formats)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-xk", zipURL.path, tempDir.path]
-        try process.run()
-        process.waitUntilExit()
+        try archiveService.extract(archive: archiveURL, to: tempDir)
 
         // Collect all PAK and info.json files from the extracted content
         var pakFiles: [URL] = []
@@ -432,6 +440,109 @@ final class AppState: ObservableObject {
                 self.showError(error)
             }
         }
+    }
+
+    // MARK: - Export Load Order to ZIP
+
+    /// Export all active mod PAK files, profile JSON, and modsettings.lsx to a ZIP archive.
+    func exportLoadOrderToZip() {
+        guard !activeMods.isEmpty else {
+            errorMessage = "No active mods to export"
+            showError = true
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.title = "Export Load Order as ZIP"
+        panel.nameFieldStringValue = "load-order-\(formattedDate()).zip"
+        if let zipType = UTType(filenameExtension: "zip") {
+            panel.allowedContentTypes = [zipType]
+        }
+
+        guard panel.runModal() == .OK, let destinationURL = panel.url else { return }
+
+        Task {
+            await performZipExport(to: destinationURL)
+        }
+    }
+
+    private func performZipExport(to destinationURL: URL) async {
+        isExporting = true
+        exportProgress = 0
+        defer {
+            isExporting = false
+            exportProgress = 0
+        }
+
+        do {
+            var entries: [(source: URL, archivePath: String)] = []
+            var missingPaks: [String] = []
+
+            // 1. Collect PAK files from active mods (skip base game module)
+            for mod in activeMods where !mod.isBasicGameModule {
+                guard let pakPath = mod.pakFilePath,
+                      FileManager.default.fileExists(atPath: pakPath.path) else {
+                    missingPaks.append(mod.name)
+                    continue
+                }
+                entries.append((
+                    source: pakPath,
+                    archivePath: "Mods/\(pakPath.lastPathComponent)"
+                ))
+            }
+
+            // 2. Generate and include profile JSON snapshot
+            let profileEntries = activeMods.map { ModProfileEntry(from: $0) }
+            let profile = ModProfile(
+                name: "Exported Load Order",
+                activeModUUIDs: activeMods.map(\.uuid),
+                mods: profileEntries
+            )
+            let profileData = try JSONEncoder.bg3PrettyPrinted.encode(profile)
+            let profileTempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("profile-\(UUID().uuidString).json")
+            try profileData.write(to: profileTempURL)
+            defer { try? FileManager.default.removeItem(at: profileTempURL) }
+            entries.append((source: profileTempURL, archivePath: "profile.json"))
+
+            // 3. Include modsettings.lsx if it exists
+            let modSettingsURL = FileLocations.modSettingsFile
+            if FileManager.default.fileExists(atPath: modSettingsURL.path) {
+                entries.append((
+                    source: modSettingsURL,
+                    archivePath: "modsettings.lsx"
+                ))
+            }
+
+            // 4. Create the ZIP on a background thread
+            let service = self.archiveService
+            let capturedEntries = entries
+            try await Task.detached {
+                try service.createZip(at: destinationURL, entries: capturedEntries) { progress in
+                    Task { @MainActor in
+                        self.exportProgress = progress
+                    }
+                }
+            }.value
+
+            // 5. Report result
+            let pakCount = entries.count - (FileManager.default.fileExists(atPath: modSettingsURL.path) ? 2 : 1)
+            if missingPaks.isEmpty {
+                statusMessage = "Exported \(pakCount) mod\(pakCount == 1 ? "" : "s") to ZIP"
+            } else {
+                statusMessage = "Exported to ZIP (skipped \(missingPaks.count) missing PAK file\(missingPaks.count == 1 ? "" : "s"))"
+                errorMessage = "Missing PAK files: \(missingPaks.joined(separator: ", "))"
+                self.showError = true
+            }
+        } catch {
+            showError(error)
+        }
+    }
+
+    private func formattedDate() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
     }
 
     // MARK: - Helpers
