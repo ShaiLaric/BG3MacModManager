@@ -43,6 +43,13 @@ final class AppState: ObservableObject {
     @Published var showSaveConfirmation: Bool = false
     @Published var pendingSaveWarnings: [ModWarning] = []
 
+    /// Duplicate mod resolution state.
+    @Published var showDuplicateResolver: Bool = false
+    @Published var duplicateGroups: [[ModInfo]] = []
+
+    /// Whether the initial duplicate check has been performed (auto-show only on first load).
+    private var hasPerformedInitialDuplicateCheck = false
+
     // MARK: - Services
 
     let modSettingsService = ModSettingsService()
@@ -84,6 +91,10 @@ final class AppState: ObservableObject {
             inactiveMods = result.inactive
             statusMessage = "Found \(activeMods.count) active, \(inactiveMods.count) inactive mods"
             runValidation()
+            if !hasPerformedInitialDuplicateCheck {
+                hasPerformedInitialDuplicateCheck = true
+                detectDuplicateGroups()
+            }
         } catch {
             showError(error)
         }
@@ -388,6 +399,41 @@ final class AppState: ObservableObject {
         return nil
     }
 
+    // MARK: - Extract Mod
+
+    /// Extract all files from a mod's .pak archive to a user-chosen folder.
+    func extractMod(_ mod: ModInfo) {
+        guard let pakURL = mod.pakFilePath else {
+            errorMessage = "No PAK file path available for \(mod.name)"
+            showError = true
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.title = "Extract \(mod.name) — Choose Destination"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Extract Here"
+
+        guard panel.runModal() == .OK, let destinationFolder = panel.url else { return }
+
+        let folderName = mod.pakFileName?.replacingOccurrences(of: ".pak", with: "") ?? mod.folder
+        let extractFolder = destinationFolder.appendingPathComponent(folderName)
+
+        Task {
+            do {
+                try FileManager.default.createDirectory(at: extractFolder, withIntermediateDirectories: true)
+                try PakReader.extractAll(from: pakURL, to: extractFolder)
+                statusMessage = "Extracted \(mod.name) to \(extractFolder.lastPathComponent)"
+                NSWorkspace.shared.open(extractFolder)
+            } catch {
+                self.showError(error)
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     var selectedMod: ModInfo? {
@@ -417,6 +463,42 @@ final class AppState: ObservableObject {
             inactiveMods: inactiveMods,
             seStatus: seStatus
         )
+    }
+
+    // MARK: - Duplicate Resolution
+
+    /// Groups all mods by UUID where more than one mod shares the same UUID.
+    func detectDuplicateGroups() {
+        let allMods = activeMods + inactiveMods
+        var uuidGroups: [String: [ModInfo]] = [:]
+
+        for mod in allMods {
+            uuidGroups[mod.uuid, default: []].append(mod)
+        }
+
+        duplicateGroups = uuidGroups.values
+            .filter { $0.count > 1 }
+            .sorted { ($0.first?.name ?? "") < ($1.first?.name ?? "") }
+
+        if !duplicateGroups.isEmpty {
+            showDuplicateResolver = true
+        }
+    }
+
+    /// Delete a specific mod's PAK file from disk and refresh.
+    func deletePakFile(for mod: ModInfo) async {
+        guard let pakURL = mod.pakFilePath else { return }
+
+        do {
+            if FileManager.default.fileExists(atPath: pakURL.path) {
+                try FileManager.default.removeItem(at: pakURL)
+            }
+            await refreshMods()
+            detectDuplicateGroups()
+            statusMessage = "Deleted \(mod.pakFileName ?? mod.name)"
+        } catch {
+            showError(error)
+        }
     }
 
     /// Sort active mods by dependency order using topological sort.

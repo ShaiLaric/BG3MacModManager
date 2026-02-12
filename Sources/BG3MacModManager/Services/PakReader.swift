@@ -92,6 +92,29 @@ final class PakReader {
         return try readFileData(handle: handle, entry: entry, header: header)
     }
 
+    /// Extract all files from a `.pak` archive to a destination folder.
+    static func extractAll(from pakURL: URL, to destinationFolder: URL) throws {
+        let handle = try FileHandle(forReadingFrom: pakURL)
+        defer { handle.closeFile() }
+
+        let (header, entries) = try readHeaderAndEntries(handle: handle)
+
+        for entry in entries {
+            let data = try readFileData(handle: handle, entry: entry, header: header)
+
+            // Normalize path separators (PAK files may use backslashes)
+            let relativePath = entry.name.replacingOccurrences(of: "\\", with: "/")
+            let fileURL = destinationFolder.appendingPathComponent(relativePath)
+
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+
+            try data.write(to: fileURL)
+        }
+    }
+
     /// Find and extract `meta.lsx` from a `.pak` file.
     /// Searches for files matching the pattern `Mods/*/meta.lsx`.
     static func extractMetaLsx(from url: URL) throws -> Data {
