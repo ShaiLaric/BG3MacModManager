@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// View for managing saved mod profiles (named load order configurations).
 struct ProfileManagerView: View {
@@ -24,6 +25,24 @@ struct ProfileManagerView: View {
                     Label("Import", systemImage: "square.and.arrow.down")
                 }
                 .help("Import a profile from a JSON file")
+
+                Menu {
+                    Button("CSV (.csv)") { exportCurrentLoadOrder(format: .csv) }
+                    Button("Markdown (.md)") { exportCurrentLoadOrder(format: .markdown) }
+                    Button("Plain Text (.txt)") { exportCurrentLoadOrder(format: .plainText) }
+                } label: {
+                    Label("Export List", systemImage: "doc.text")
+                }
+                .help("Export current load order as text")
+                .disabled(appState.activeMods.isEmpty)
+
+                Button {
+                    appState.exportLoadOrderToZip()
+                } label: {
+                    Label("Export ZIP", systemImage: "archivebox")
+                }
+                .help("Export all active mod PAK files and settings as a ZIP archive")
+                .disabled(appState.activeMods.isEmpty || appState.isExporting)
             }
             .padding()
 
@@ -161,6 +180,28 @@ struct ProfileManagerView: View {
                     appState.errorMessage = error.localizedDescription
                     appState.showError = true
                 }
+            }
+        }
+    }
+
+    private func exportCurrentLoadOrder(format: TextExportService.ExportFormat) {
+        let content = appState.textExportService.export(
+            activeMods: appState.activeMods,
+            format: format
+        )
+        let panel = NSSavePanel()
+        panel.title = "Export Load Order"
+        panel.nameFieldStringValue = "load-order.\(format.fileExtension)"
+        if let contentType = UTType(filenameExtension: format.fileExtension) {
+            panel.allowedContentTypes = [contentType]
+        }
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                appState.errorMessage = error.localizedDescription
+                appState.showError = true
             }
         }
     }

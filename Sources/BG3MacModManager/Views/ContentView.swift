@@ -138,6 +138,14 @@ struct ContentView: View {
                 ProgressView()
                     .controlSize(.small)
             }
+            if appState.isExporting {
+                ProgressView(value: appState.exportProgress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 120)
+                Text("Exporting...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Text(appState.statusMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
