@@ -32,11 +32,13 @@ struct VersionGeneratorView: View {
                                 .font(.body.monospaced())
                                 .frame(maxWidth: 250)
                                 .onSubmit { convertFromVersionString() }
+                                .help("Enter version in major.minor.revision.build format")
 
                             Button("Convert") {
                                 convertFromVersionString()
                             }
                             .buttonStyle(.borderedProminent)
+                            .help("Convert version string to Int64")
                         }
                     }
                     .padding(4)
@@ -59,11 +61,13 @@ struct VersionGeneratorView: View {
                                 .font(.body.monospaced())
                                 .frame(maxWidth: 250)
                                 .onSubmit { convertFromInt64() }
+                                .help("Enter the raw Int64 value from meta.lsx or info.json")
 
                             Button("Convert") {
                                 convertFromInt64()
                             }
                             .buttonStyle(.borderedProminent)
+                            .help("Convert Int64 to version string")
                         }
                     }
                     .padding(4)

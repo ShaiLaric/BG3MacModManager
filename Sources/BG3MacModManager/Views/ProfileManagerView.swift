@@ -123,6 +123,7 @@ struct ProfileManagerView: View {
                 showingSaveSheet = true
             }
             .buttonStyle(.borderedProminent)
+            .help("Save current mod configuration as a profile")
             Spacer()
         }
     }

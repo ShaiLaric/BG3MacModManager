@@ -42,6 +42,7 @@ struct SettingsView: View {
                     Text("90 days").tag(90)
                     Text("Forever").tag(0)
                 }
+                .help("How long to keep automatic backups before cleanup")
 
                 Button("Clean Old Backups") {
                     guard backupRetentionDays > 0 else { return }
