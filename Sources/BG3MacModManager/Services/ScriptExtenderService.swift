@@ -90,4 +90,31 @@ final class ScriptExtenderService {
         if minimal { env[SEEnvironmentVar.minimal.rawValue] = "1" }
         return env
     }
+
+    // MARK: - Deployment State Persistence
+
+    /// Record that SE is currently deployed (call when SE is detected as deployed).
+    func recordDeployed() {
+        do {
+            try FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
+            let data = try JSONEncoder().encode(["wasDeployed": true])
+            try data.write(to: FileLocations.seDeployedFlagFile, options: .atomic)
+        } catch {
+            // Non-fatal
+        }
+    }
+
+    /// Clear the deployed flag (call when user acknowledges disappearance or SE is reinstalled).
+    func clearDeployedFlag() {
+        try? FileManager.default.removeItem(at: FileLocations.seDeployedFlagFile)
+    }
+
+    /// Check if SE was previously recorded as deployed.
+    func wasDeployed() -> Bool {
+        guard let data = try? Data(contentsOf: FileLocations.seDeployedFlagFile),
+              let dict = try? JSONDecoder().decode([String: Bool].self, from: data) else {
+            return false
+        }
+        return dict["wasDeployed"] ?? false
+    }
 }

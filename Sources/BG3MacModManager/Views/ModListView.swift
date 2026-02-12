@@ -219,6 +219,15 @@ struct ModListView: View {
                             .buttonStyle(.bordered)
                             .help("Restore modsettings.lsx from the most recent backup to recover your load order")
                         }
+
+                        if case .viewSEStatus = warning.suggestedAction {
+                            Button("View SE Status") {
+                                appState.navigateToSidebarItem = "scriptExtender"
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.bordered)
+                            .help("Open the Script Extender status page to check installation and re-deploy")
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)

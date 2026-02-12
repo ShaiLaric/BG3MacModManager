@@ -60,6 +60,7 @@ struct ModWarning: Identifiable, Equatable {
         case noMetadata             = "No Metadata"
         case modCrashSanityCheck    = "ModCrashSanityCheck"
         case externalModSettingsChange = "External modsettings.lsx Change"
+        case seDisappeared             = "Script Extender Disappeared"
     }
 
     enum SuggestedAction: Equatable {
@@ -70,5 +71,6 @@ struct ModWarning: Identifiable, Equatable {
         case installScriptExtender
         case deleteModCrashSanityCheck
         case restoreModSettings
+        case viewSEStatus
     }
 }

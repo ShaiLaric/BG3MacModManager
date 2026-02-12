@@ -108,6 +108,11 @@ enum FileLocations {
         appSupportDirectory.appendingPathComponent("last_export_hash")
     }
 
+    /// Persists whether Script Extender was previously detected as deployed.
+    static var seDeployedFlagFile: URL {
+        appSupportDirectory.appendingPathComponent("se_was_deployed.json")
+    }
+
     // MARK: - Helpers
 
     /// Ensures a directory exists, creating it if necessary.

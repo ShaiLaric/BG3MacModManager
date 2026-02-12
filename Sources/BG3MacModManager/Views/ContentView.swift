@@ -1,8 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @State private var selectedSidebarItem: SidebarItem = .mods
+    @State private var isDropTargeted: Bool = false
 
     enum SidebarItem: String, CaseIterable, Identifiable {
         case mods = "Mods"
@@ -74,6 +76,57 @@ struct ContentView: View {
         }
         .overlay(alignment: .bottom) {
             statusBar
+        }
+        .onDrop(of: Self.acceptedDropTypes, isTargeted: $isDropTargeted) { providers in
+            handleFileDrop(providers)
+            return true
+        }
+        .overlay {
+            if isDropTargeted {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.accentColor, lineWidth: 3)
+                        .padding(4)
+                    VStack(spacing: 8) {
+                        Image(systemName: "arrow.down.doc")
+                            .font(.system(size: 36))
+                        Text("Drop to Import Mods")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(Color.accentColor)
+                    .padding()
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .allowsHitTesting(false)
+            }
+        }
+        .alert(
+            "Activate Imported Mods?",
+            isPresented: $appState.showImportActivation
+        ) {
+            Button("Activate All") {
+                for mod in appState.lastImportedMods {
+                    appState.activateMod(mod)
+                }
+                appState.lastImportedMods = []
+            }
+            Button("Keep Inactive", role: .cancel) {
+                appState.lastImportedMods = []
+            }
+        } message: {
+            let names = appState.lastImportedMods.map(\.name).joined(separator: ", ")
+            Text("\(appState.lastImportedMods.count) new mod(s) imported: \(names)\n\nWould you like to add them to your active load order?")
+        }
+        .onChange(of: appState.navigateToSidebarItem) { _, target in
+            if let target = target {
+                switch target {
+                case "scriptExtender":
+                    selectedSidebarItem = .scriptExtender
+                default:
+                    break
+                }
+                appState.navigateToSidebarItem = nil
+            }
         }
     }
 
@@ -151,6 +204,13 @@ struct ContentView: View {
                 ProgressView()
                     .controlSize(.small)
             }
+            if appState.isImporting {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Importing...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if appState.isExporting {
                 ProgressView(value: appState.exportProgress)
                     .progressViewStyle(.linear)
@@ -181,5 +241,42 @@ struct ContentView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+
+    // MARK: - Drag-and-Drop from Finder
+
+    private static let acceptedDropTypes: [UTType] = {
+        var types: [UTType] = [.zip]
+        if let pak = UTType(filenameExtension: "pak") { types.append(pak) }
+        if let tar = UTType(filenameExtension: "tar") { types.append(tar) }
+        if let gz = UTType(filenameExtension: "gz") { types.append(gz) }
+        if let tgz = UTType(filenameExtension: "tgz") { types.append(tgz) }
+        if let bz2 = UTType(filenameExtension: "bz2") { types.append(bz2) }
+        if let xz = UTType(filenameExtension: "xz") { types.append(xz) }
+        return types
+    }()
+
+    private func handleFileDrop(_ providers: [NSItemProvider]) {
+        var urls: [URL] = []
+        let group = DispatchGroup()
+
+        for provider in providers {
+            if provider.canLoadObject(ofClass: URL.self) {
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let url = url {
+                        urls.append(url)
+                    }
+                    group.leave()
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            guard !urls.isEmpty else { return }
+            Task {
+                await appState.importMods(from: urls)
+            }
+        }
     }
 }

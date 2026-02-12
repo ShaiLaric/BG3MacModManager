@@ -10,7 +10,8 @@ final class ModValidationService {
     func validate(
         activeMods: [ModInfo],
         inactiveMods: [ModInfo],
-        seStatus: ScriptExtenderService.SEStatus?
+        seStatus: ScriptExtenderService.SEStatus?,
+        seWasPreviouslyDeployed: Bool = false
     ) -> [ModWarning] {
         var warnings: [ModWarning] = []
 
@@ -23,6 +24,7 @@ final class ModValidationService {
         warnings.append(contentsOf: checkScriptExtenderRequirements(activeMods: activeMods, seStatus: seStatus))
         warnings.append(contentsOf: checkNoMetadataMods(activeMods: activeMods, inactiveMods: inactiveMods))
         warnings.append(contentsOf: checkModCrashSanityCheck())
+        warnings.append(contentsOf: checkSEDisappeared(seStatus: seStatus, wasPreviouslyDeployed: seWasPreviouslyDeployed))
 
         return warnings.sorted { $0.severity > $1.severity }
     }
@@ -31,10 +33,15 @@ final class ModValidationService {
     func validateForSave(
         activeMods: [ModInfo],
         inactiveMods: [ModInfo],
-        seStatus: ScriptExtenderService.SEStatus?
+        seStatus: ScriptExtenderService.SEStatus?,
+        seWasPreviouslyDeployed: Bool = false
     ) -> [ModWarning] {
-        return validate(activeMods: activeMods, inactiveMods: inactiveMods, seStatus: seStatus)
-            .filter { $0.severity >= .warning }
+        return validate(
+            activeMods: activeMods,
+            inactiveMods: inactiveMods,
+            seStatus: seStatus,
+            seWasPreviouslyDeployed: seWasPreviouslyDeployed
+        ).filter { $0.severity >= .warning }
     }
 
     // MARK: - Topological Sort (Dependency-Based)
@@ -325,6 +332,24 @@ final class ModValidationService {
             message: "ModCrashSanityCheck folder detected",
             detail: "The ModCrashSanityCheck directory exists. Since Patch 8 this can cause the game to deactivate your mods on launch. Delete it to prevent this.",
             suggestedAction: .deleteModCrashSanityCheck
+        )]
+    }
+
+    /// Check if Script Extender was previously deployed but is now missing.
+    /// This typically happens after a Steam game update wipes the app bundle.
+    private func checkSEDisappeared(
+        seStatus: ScriptExtenderService.SEStatus?,
+        wasPreviouslyDeployed: Bool
+    ) -> [ModWarning] {
+        guard wasPreviouslyDeployed else { return [] }
+        if let status = seStatus, status.isDeployed { return [] }
+
+        return [ModWarning(
+            severity: .warning,
+            category: .seDisappeared,
+            message: "Script Extender was previously installed but is no longer detected",
+            detail: "bg3se-macos was previously deployed but libbg3se.dylib is no longer found in the game bundle. A game update may have removed it. Re-deploy Script Extender to restore SE mod functionality.",
+            suggestedAction: .viewSEStatus
         )]
     }
 }

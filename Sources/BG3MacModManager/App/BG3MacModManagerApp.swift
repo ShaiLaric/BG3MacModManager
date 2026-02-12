@@ -77,11 +77,9 @@ struct BG3MacModManagerApp: App {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
 
-        if panel.runModal() == .OK {
-            for url in panel.urls {
-                Task {
-                    await appState.importMod(from: url)
-                }
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            Task {
+                await appState.importMods(from: panel.urls)
             }
         }
     }
