@@ -122,15 +122,17 @@ struct SEStatusView: View {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(seMods) { mod in
+                        let isActive = appState.activeMods.contains(where: { $0.uuid == mod.uuid })
                         HStack {
-                            Image(systemName: appState.activeMods.contains(where: { $0.uuid == mod.uuid }) ?
+                            Image(systemName: isActive ?
                                   "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(appState.activeMods.contains(where: { $0.uuid == mod.uuid }) ?
+                                .foregroundStyle(isActive ?
                                                  .green : .secondary)
+                                .help(isActive ? "This mod is in your active load order" : "This mod is inactive")
                             Text(mod.name)
                                 .font(.body)
                             Spacer()
-                            Text(appState.activeMods.contains(where: { $0.uuid == mod.uuid }) ? "Active" : "Inactive")
+                            Text(isActive ? "Active" : "Inactive")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

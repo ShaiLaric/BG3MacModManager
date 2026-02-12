@@ -155,6 +155,7 @@ struct ContentView: View {
                 ProgressView(value: appState.exportProgress)
                     .progressViewStyle(.linear)
                     .frame(width: 120)
+                    .help("Exporting mod archive to ZIP")
                 Text("Exporting...")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -172,6 +173,9 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .help(se.isInstalled
+                    ? "bg3se-macos is deployed — Script Extender mods will work"
+                    : "bg3se-macos not detected — Script Extender mods will not function")
             }
         }
         .padding(.horizontal, 12)

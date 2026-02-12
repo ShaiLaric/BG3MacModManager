@@ -57,6 +57,9 @@ struct SettingsView: View {
                     Text("Game Status:")
                     Text(appState.isGameInstalled ? "Installed" : "Not Found")
                         .foregroundStyle(appState.isGameInstalled ? .green : .red)
+                        .help(appState.isGameInstalled
+                            ? "Baldur's Gate 3 detected via Steam"
+                            : "Baldur's Gate 3 not found — check that it's installed via Steam")
                 }
             }
         }
@@ -94,6 +97,7 @@ struct SettingsView: View {
             Spacer()
             Image(systemName: exists ? "checkmark.circle.fill" : "xmark.circle")
                 .foregroundStyle(exists ? .green : .red)
+                .help(exists ? "Found at this path" : "Not found at this path")
         }
     }
 
