@@ -50,14 +50,16 @@ struct ModWarning: Identifiable, Equatable {
     }
 
     enum Category: String, CaseIterable {
-        case duplicateUUID       = "Duplicate UUID"
-        case missingDependency   = "Missing Dependency"
-        case wrongLoadOrder      = "Wrong Load Order"
-        case circularDependency  = "Circular Dependency"
-        case conflictingMods     = "Mod Conflict"
-        case phantomMod          = "Phantom Mod"
-        case seRequired          = "Script Extender Required"
-        case noMetadata          = "No Metadata"
+        case duplicateUUID          = "Duplicate UUID"
+        case missingDependency      = "Missing Dependency"
+        case wrongLoadOrder         = "Wrong Load Order"
+        case circularDependency     = "Circular Dependency"
+        case conflictingMods        = "Mod Conflict"
+        case phantomMod             = "Phantom Mod"
+        case seRequired             = "Script Extender Required"
+        case noMetadata             = "No Metadata"
+        case modCrashSanityCheck    = "ModCrashSanityCheck"
+        case externalModSettingsChange = "External modsettings.lsx Change"
     }
 
     enum SuggestedAction: Equatable {
@@ -65,5 +67,7 @@ struct ModWarning: Identifiable, Equatable {
         case deactivateMod(uuid: String)
         case installDependency(name: String)
         case installScriptExtender
+        case deleteModCrashSanityCheck
+        case restoreModSettings
     }
 }

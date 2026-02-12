@@ -129,6 +129,24 @@ struct ModListView: View {
                             .buttonStyle(.bordered)
                             .help("Deactivate the conflicting mod to resolve this conflict. You can re-activate it later from the inactive list.")
                         }
+
+                        if case .deleteModCrashSanityCheck = warning.suggestedAction {
+                            Button("Delete Folder") {
+                                appState.deleteModCrashSanityCheckIfNeeded()
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.bordered)
+                            .help("Delete the ModCrashSanityCheck directory to prevent the game from deactivating your mods on launch")
+                        }
+
+                        if case .restoreModSettings = warning.suggestedAction {
+                            Button("Restore Backup") {
+                                Task { await appState.restoreFromLatestBackup() }
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.bordered)
+                            .help("Restore modsettings.lsx from the most recent backup to recover your load order")
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)

@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import CryptoKit
 import UniformTypeIdentifiers
 
 /// Central observable state for the entire application.
@@ -52,6 +53,9 @@ final class AppState: ObservableObject {
     @Published var showDuplicateResolver: Bool = false
     @Published var duplicateGroups: [[ModInfo]] = []
 
+    /// External modsettings.lsx change detection — prompt user to restore from backup.
+    @Published var showExternalChangeAlert: Bool = false
+
     /// Whether the initial duplicate check has been performed (auto-show only on first load).
     private var hasPerformedInitialDuplicateCheck = false
 
@@ -76,7 +80,9 @@ final class AppState: ObservableObject {
 
     func initialLoad() {
         Task {
+            deleteModCrashSanityCheckIfNeeded()
             await refreshAll()
+            checkForExternalModSettingsChange()
         }
     }
 
@@ -195,12 +201,15 @@ final class AppState: ObservableObject {
     /// Actually write modsettings.lsx (called directly or after user confirms warnings).
     func performSave() async {
         do {
+            deleteModCrashSanityCheckIfNeeded()
+
             if FileLocations.modSettingsExists {
                 try backupService.backupModSettings()
             }
 
             backupService.unlockModSettings()
             try modSettingsService.write(activeMods: activeMods)
+            recordModSettingsHash()
 
             let locked = backupService.lockModSettings()
             statusMessage = locked
@@ -680,6 +689,146 @@ final class AppState: ObservableObject {
         m.category = categoryService.inferCategory(for: mod)
         return m
     }
+
+    // MARK: - ModCrashSanityCheck Workaround
+
+    /// Delete the ModCrashSanityCheck directory if it exists.
+    /// Since Patch 8 this folder causes BG3 to deactivate externally-managed mods.
+    func deleteModCrashSanityCheckIfNeeded() {
+        guard FileLocations.modCrashSanityCheckExists else { return }
+        do {
+            try FileManager.default.removeItem(at: FileLocations.modCrashSanityCheckFolder)
+            statusMessage = "Deleted ModCrashSanityCheck folder (prevents game from deactivating mods)"
+        } catch {
+            // Non-fatal — surface as validation warning instead
+            statusMessage = "Warning: could not delete ModCrashSanityCheck folder"
+        }
+        runValidation()
+    }
+
+    // MARK: - Last-Exported Order Recovery
+
+    /// Record a SHA-256 hash of the current modsettings.lsx after we write it.
+    private func recordModSettingsHash() {
+        guard let hash = hashOfModSettings() else { return }
+        try? FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
+        try? hash.write(to: FileLocations.lastExportHashFile, atomically: true, encoding: .utf8)
+    }
+
+    /// Compare the current modsettings.lsx against our last known export.
+    /// If they differ, the game (or another tool) changed the file externally.
+    private func checkForExternalModSettingsChange() {
+        guard FileLocations.modSettingsExists else { return }
+        guard let storedHash = try? String(contentsOf: FileLocations.lastExportHashFile, encoding: .utf8) else { return }
+        guard let currentHash = hashOfModSettings() else { return }
+
+        if storedHash != currentHash {
+            showExternalChangeAlert = true
+        }
+    }
+
+    /// Restore modsettings.lsx from the most recent backup (used when external change detected).
+    func restoreFromLatestBackup() async {
+        do {
+            let allBackups = try backupService.listBackups()
+            guard let latest = allBackups.first else {
+                errorMessage = "No backups available to restore from."
+                showError = true
+                return
+            }
+            try backupService.restore(backup: latest)
+            await refreshMods()
+            recordModSettingsHash()
+            statusMessage = "Restored modsettings.lsx from backup (\(latest.displayName))"
+        } catch {
+            showError(error)
+        }
+    }
+
+    /// SHA-256 of the current modsettings.lsx file on disk.
+    private func hashOfModSettings() -> String? {
+        guard let data = try? Data(contentsOf: FileLocations.modSettingsFile) else { return nil }
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    // MARK: - Import from Save File
+
+    /// Import mod load order from a BG3 save file (.lsv).
+    /// Save files are LSPK archives containing modsettings.lsx.
+    func importFromSaveFile(url: URL) async {
+        do {
+            // 1. List files in the archive and find modsettings.lsx
+            let entries = try PakReader.listFiles(at: url)
+            guard let settingsEntry = entries.first(where: {
+                $0.name.hasSuffix("modsettings.lsx") ||
+                $0.name.replacingOccurrences(of: "\\", with: "/").hasSuffix("modsettings.lsx")
+            }) else {
+                errorMessage = "No modsettings.lsx found in save file."
+                showError = true
+                return
+            }
+
+            // 2. Extract and parse
+            let data = try PakReader.extractFile(named: settingsEntry.name, from: url)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("save-modsettings-\(UUID().uuidString).lsx")
+            try data.write(to: tempURL)
+            defer { try? FileManager.default.removeItem(at: tempURL) }
+
+            let settings = try modSettingsService.read(from: tempURL)
+
+            // 3. Reconstruct active/inactive lists from save data
+            let allMods = activeMods + inactiveMods
+            var newActive: [ModInfo] = []
+            var usedUUIDs: Set<String> = []
+
+            for uuid in settings.modOrder {
+                guard !Constants.builtInModuleUUIDs.contains(uuid) else { continue }
+
+                if let mod = allMods.first(where: { $0.uuid == uuid }) {
+                    newActive.append(mod)
+                    usedUUIDs.insert(uuid)
+                } else if let desc = settings.mods[uuid] {
+                    // Create placeholder for mods we don't have on disk
+                    let mod = ModInfo(
+                        uuid: desc.uuid,
+                        folder: desc.folder,
+                        name: desc.name,
+                        author: "Unknown",
+                        modDescription: "",
+                        version64: Int64(desc.version64) ?? 36028797018963968,
+                        md5: desc.md5,
+                        tags: [],
+                        dependencies: [],
+                        conflicts: [],
+                        requiresScriptExtender: false,
+                        pakFileName: nil,
+                        pakFilePath: nil,
+                        metadataSource: .modSettings
+                    )
+                    newActive.append(mod)
+                    usedUUIDs.insert(uuid)
+                }
+            }
+
+            let newInactive = allMods
+                .filter { !usedUUIDs.contains($0.uuid) && !$0.isBasicGameModule }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            // Keep base game module at the front
+            let base = allMods.filter { $0.isBasicGameModule }
+            activeMods = base + newActive.map { inferCategory(for: $0) }
+            inactiveMods = newInactive.map { inferCategory(for: $0) }
+
+            runValidation()
+            statusMessage = "Imported load order from save file (\(newActive.count) mods)"
+        } catch {
+            showError(error)
+        }
+    }
+
+    // MARK: - Error Handling
 
     private func showError(_ error: Error) {
         errorMessage = error.localizedDescription
