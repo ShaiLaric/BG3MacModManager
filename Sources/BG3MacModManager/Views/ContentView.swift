@@ -9,6 +9,7 @@ struct ContentView: View {
         case profiles = "Profiles"
         case backups = "Backups"
         case scriptExtender = "Script Extender"
+        case tools = "Tools"
 
         var id: String { rawValue }
 
@@ -18,6 +19,7 @@ struct ContentView: View {
             case .profiles: return "person.2"
             case .backups: return "clock.arrow.circlepath"
             case .scriptExtender: return "terminal"
+            case .tools: return "wrench.and.screwdriver"
             }
         }
     }
@@ -53,6 +55,10 @@ struct ContentView: View {
             let warningCount = appState.pendingSaveWarnings.filter { $0.severity == .warning }.count
             Text("Your mod configuration has \(criticalCount) critical issue(s) and \(warningCount) warning(s) that may cause the game to crash. Save anyway?")
         }
+        .sheet(isPresented: $appState.showDuplicateResolver) {
+            DuplicateResolverView()
+                .environmentObject(appState)
+        }
         .overlay(alignment: .bottom) {
             statusBar
         }
@@ -82,6 +88,8 @@ struct ContentView: View {
             BackupManagerView()
         case .scriptExtender:
             SEStatusView()
+        case .tools:
+            VersionGeneratorView()
         }
     }
 
