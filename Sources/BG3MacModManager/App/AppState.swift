@@ -59,6 +59,18 @@ final class AppState: ObservableObject {
     /// External modsettings.lsx change detection — prompt user to restore from backup.
     @Published var showExternalChangeAlert: Bool = false
 
+    /// Import progress state.
+    @Published var isImporting: Bool = false
+
+    /// Mods that were newly imported in the last import operation (for post-import activation prompt).
+    @Published var lastImportedMods: [ModInfo] = []
+
+    /// Whether to show the post-import activation prompt.
+    @Published var showImportActivation: Bool = false
+
+    /// Request to navigate to a specific sidebar tab (set by action buttons, consumed by ContentView).
+    @Published var navigateToSidebarItem: String?
+
     /// Whether the initial duplicate check has been performed (auto-show only on first load).
     private var hasPerformedInitialDuplicateCheck = false
 
@@ -134,7 +146,11 @@ final class AppState: ObservableObject {
     }
 
     func refreshSEStatus() {
-        seStatus = seService.checkStatus()
+        let status = seService.checkStatus()
+        seStatus = status
+        if status.isDeployed {
+            seService.recordDeployed()
+        }
     }
 
     // MARK: - Mod Management
@@ -187,7 +203,8 @@ final class AppState: ObservableObject {
         let saveWarnings = validationService.validateForSave(
             activeMods: activeMods,
             inactiveMods: inactiveMods,
-            seStatus: seStatus
+            seStatus: seStatus,
+            seWasPreviouslyDeployed: seService.wasDeployed()
         )
 
         let hasCritical = saveWarnings.contains { $0.severity == .critical }
@@ -324,36 +341,73 @@ final class AppState: ObservableObject {
 
     // MARK: - Import Mod
 
-    /// Import a mod from a file URL (.pak, .zip, or supported archive format).
+    /// Import a single mod from a file URL (.pak, .zip, or supported archive format).
     func importMod(from url: URL) async {
-        do {
-            let modsFolder = FileLocations.modsFolder
-            try FileLocations.ensureDirectoryExists(modsFolder)
+        await importMods(from: [url])
+    }
 
-            let ext = url.pathExtension.lowercased()
+    /// Import multiple mod files at once (for drag-and-drop or multi-select file picker).
+    /// Tracks all new mods across the batch and prompts for activation once at the end.
+    func importMods(from urls: [URL]) async {
+        isImporting = true
+        defer { isImporting = false }
 
-            if ext == "pak" {
-                let destination = modsFolder.appendingPathComponent(url.lastPathComponent)
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    try FileManager.default.removeItem(at: destination)
+        let preImportUUIDs = Set((activeMods + inactiveMods).map(\.uuid))
+        var totalDuplicates: [String] = []
+        var importedCount = 0
+
+        for url in urls {
+            do {
+                let modsFolder = FileLocations.modsFolder
+                try FileLocations.ensureDirectoryExists(modsFolder)
+
+                let ext = url.pathExtension.lowercased()
+
+                if ext == "pak" {
+                    let destination = modsFolder.appendingPathComponent(url.lastPathComponent)
+                    if FileManager.default.fileExists(atPath: destination.path) {
+                        totalDuplicates.append(url.lastPathComponent)
+                        try FileManager.default.removeItem(at: destination)
+                    }
+                    try FileManager.default.copyItem(at: url, to: destination)
+                    importedCount += 1
+                } else if ArchiveService.ArchiveFormat(
+                    pathExtension: ext, fullFilename: url.lastPathComponent
+                ) != nil {
+                    let replaced = try await importArchive(url)
+                    totalDuplicates.append(contentsOf: replaced)
+                    importedCount += 1
+                } else {
+                    throw ArchiveService.ArchiveError.unsupportedFormat(ext)
                 }
-                try FileManager.default.copyItem(at: url, to: destination)
-            } else if ArchiveService.ArchiveFormat(
-                pathExtension: ext, fullFilename: url.lastPathComponent
-            ) != nil {
-                try await importArchive(url)
-            } else {
-                throw ArchiveService.ArchiveError.unsupportedFormat(ext)
+            } catch {
+                showError(error)
             }
+        }
 
-            await refreshMods()
-            statusMessage = "Imported \(url.lastPathComponent)"
-        } catch {
-            showError(error)
+        guard importedCount > 0 else { return }
+
+        await refreshMods()
+
+        // Identify newly appeared mods
+        let allModsNow = activeMods + inactiveMods
+        let newMods = allModsNow.filter { !preImportUUIDs.contains($0.uuid) }
+
+        if !totalDuplicates.isEmpty {
+            statusMessage = "Imported \(importedCount) file(s) (replaced \(totalDuplicates.count) existing)"
+        } else {
+            statusMessage = "Imported \(importedCount) file(s)"
+        }
+
+        if !newMods.isEmpty {
+            lastImportedMods = newMods
+            showImportActivation = true
         }
     }
 
-    private func importArchive(_ archiveURL: URL) async throws {
+    /// Extract an archive and copy its PAK files to the Mods folder.
+    /// Returns the list of filenames that were replaced (already existed).
+    private func importArchive(_ archiveURL: URL) async throws -> [String] {
         let modsFolder = FileLocations.modsFolder
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -374,6 +428,8 @@ final class AppState: ObservableObject {
             }
         }
 
+        var duplicatesReplaced: [String] = []
+
         // For each PAK, copy it and find the nearest info.json to pair with it
         for pakURL in pakFiles {
             let pakFilename = pakURL.lastPathComponent
@@ -382,6 +438,7 @@ final class AppState: ObservableObject {
             // Copy PAK to Mods folder
             let pakDestination = modsFolder.appendingPathComponent(pakFilename)
             if FileManager.default.fileExists(atPath: pakDestination.path) {
+                duplicatesReplaced.append(pakFilename)
                 try FileManager.default.removeItem(at: pakDestination)
             }
             try FileManager.default.copyItem(at: pakURL, to: pakDestination)
@@ -400,6 +457,8 @@ final class AppState: ObservableObject {
         // Clean up any stale bare "info.json" in the Mods folder that could pollute discovery
         let staleInfoJson = modsFolder.appendingPathComponent("info.json")
         try? FileManager.default.removeItem(at: staleInfoJson)
+
+        return duplicatesReplaced
     }
 
     /// Find the nearest info.json to a PAK file within the extracted ZIP.
@@ -748,7 +807,8 @@ final class AppState: ObservableObject {
         warnings = validationService.validate(
             activeMods: activeMods,
             inactiveMods: inactiveMods,
-            seStatus: seStatus
+            seStatus: seStatus,
+            seWasPreviouslyDeployed: seService.wasDeployed()
         )
     }
 

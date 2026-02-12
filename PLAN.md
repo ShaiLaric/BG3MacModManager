@@ -52,10 +52,22 @@ Parse the `<Conflicts>` node from `meta.lsx` and warn when conflicting mods are 
 - "Activate Missing Dependencies" one-click action (per-mod button + global menu item + per-warning button)
 - Multi-select drag-and-drop (Cmd+Click/Shift+Click, cross-pane drag, multi-select action bar, group context menus)
 
-### Phase 5: Community Features (P3)
+### Phase 5: Drag-and-Drop Install, SE Warning, Heuristics (P3)
 
-- Import load order from text/URL
-- Community preset load orders
+- Drag-and-drop mod installation from Finder (window-level drop target, batch import, post-import activation prompt)
+- Script Extender disappearance warning (persist deployed state, warn when SE goes missing after a game update)
+- Category inference heuristics expansion (removed UUID database, expanded tag/name pattern matching)
+
+**Modified files:**
+- `App/AppState.swift` — added `isImporting`, `lastImportedMods`, `showImportActivation`, `navigateToSidebarItem`; new `importMods(from:)` batch method; updated `importArchive()` to return replaced filenames; SE state persistence in `refreshSEStatus()`; SE flag in `runValidation()` and `saveModSettings()`
+- `Views/ContentView.swift` — added window-level `.onDrop()` with drop target overlay, importing progress indicator, post-import activation alert, sidebar navigation via `navigateToSidebarItem`
+- `App/BG3MacModManagerApp.swift` — updated `importModFromPanel()` to use batch `importMods(from:)`
+- `Utilities/FileLocations.swift` — added `seDeployedFlagFile`
+- `Services/ScriptExtenderService.swift` — added `recordDeployed()`, `clearDeployedFlag()`, `wasDeployed()` persistence
+- `Models/ModWarning.swift` — added `.seDisappeared` category, `.viewSEStatus` suggested action
+- `Services/ModValidationService.swift` — added `seWasPreviouslyDeployed` parameter to `validate()`/`validateForSave()`, added `checkSEDisappeared()` check
+- `Views/ModListView.swift` — added "View SE Status" action button for SE disappearance warning
+- `Services/CategoryInferenceService.swift` — removed `knownMods` UUID database, expanded tag heuristics (~30 new keywords), expanded name heuristics (~30 new patterns), added gameplay name patterns
 
 ---
 
@@ -95,7 +107,7 @@ with category awareness:
 
 **Implementation:**
 - `ModCategory` enum with 5 tiers, each with display name, color, and icon
-- `CategoryInferenceService` with 4-layer inference: user overrides → known-mods DB → tag heuristics → name heuristics
+- `CategoryInferenceService` with 3-layer inference: user overrides → tag heuristics → name heuristics
 - User overrides persisted to `~/Library/Application Support/BG3MacModManager/category_overrides.json`
 - `smartSort()` groups by tier, applies topological sort within each tier
 - Uncategorized mods sort with Tier 3 (content extensions) as a safe middle ground
@@ -187,7 +199,32 @@ game to deactivate externally-managed mods. BG3MM auto-deletes this folder.
   `moveSelectedActiveMods(to:)`, updated `selectedMod` computed property
 - `Views/ModListView.swift` — multi-select lists, action bar, cross-pane drag-drop, multi-select detail panel
 
-### 8. Load Order Sharing [Phase 5]
+### 8. Drag-and-Drop Install [Phase 5 - DONE]
 
-- Import from text/URL
-- Community preset load orders
+**Implemented:**
+- **Window-level drag-and-drop from Finder**: Drop `.pak`, `.zip`, `.tar` (and variants) onto the app window
+  - Visual drop target overlay with accent color border and "Drop to Import Mods" label
+  - Progress indicator in status bar during import
+- **Batch import**: Multiple files processed in one operation with a single post-import prompt
+- **Post-import activation prompt**: Alert asks "Activate All" or "Keep Inactive" after importing new mods
+- **Duplicate detection**: Reports when existing PAK files are replaced during import
+- **Cmd+I multi-select**: File picker now batches all selected files through same code path
+
+### 9. Script Extender Disappearance Warning [Phase 5 - DONE]
+
+**Implemented:**
+- **SE deployment state persistence**: Records when SE is detected as deployed (`se_was_deployed.json`)
+- **Disappearance detection**: On refresh/validation, warns if SE was previously deployed but is now missing
+- **"View SE Status" action button**: Navigates to the Script Extender sidebar tab for re-deployment
+- **No false positives**: Users who never had SE installed won't see the warning
+
+### 10. Category Heuristics Expansion [Phase 5 - DONE]
+
+**Implemented:**
+- **Removed UUID database**: Eliminated the 2-entry `knownMods` dictionary in favor of pure heuristics
+- **Expanded tag heuristics**: Added ~30 new keywords across all tiers (D&D class names, outfit/clothing,
+  camp/inventory, horn/tail/wing, etc.)
+- **Expanded name heuristics**: Added ~30 new patterns (D&D subclass archetypes like "warlock patron",
+  "paladin oath"; combiner variants; gameplay patterns like "party size", "carry weight")
+- **New gameplay name patterns**: Previously missing from `inferFromName()` — now covers camp events,
+  fast travel, difficulty, auto loot, merchants, etc.
