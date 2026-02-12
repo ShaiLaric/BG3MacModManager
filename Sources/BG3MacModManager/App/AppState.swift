@@ -249,6 +249,7 @@ final class AppState: ObservableObject {
                     md5: entry.md5,
                     tags: [],
                     dependencies: [],
+                    conflicts: [],
                     requiresScriptExtender: false,
                     pakFileName: nil,
                     pakFilePath: nil,

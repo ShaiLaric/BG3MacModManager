@@ -30,6 +30,9 @@ struct ModInfo: Identifiable, Codable, Equatable {
     /// Dependencies (UUIDs of required mods).
     var dependencies: [ModDependency]
 
+    /// Declared conflicts (UUIDs of incompatible mods, from meta.lsx <Conflicts> node).
+    var conflicts: [ModDependency]
+
     /// Whether this mod requires bg3se-macos (Script Extender).
     var requiresScriptExtender: Bool
 
@@ -73,6 +76,7 @@ struct ModInfo: Identifiable, Codable, Equatable {
             md5: "",
             tags: [],
             dependencies: [],
+            conflicts: [],
             requiresScriptExtender: false,
             pakFileName: nil,
             pakFilePath: nil,
@@ -95,6 +99,7 @@ struct ModInfo: Identifiable, Codable, Equatable {
             md5: "",
             tags: [],
             dependencies: [],
+            conflicts: [],
             requiresScriptExtender: false,
             pakFileName: filename,
             pakFilePath: url,
