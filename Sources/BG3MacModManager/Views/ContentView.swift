@@ -267,15 +267,16 @@ struct ContentView: View {
     }()
 
     private func handleFileDrop(_ providers: [NSItemProvider]) {
-        var urls: [URL] = []
         let group = DispatchGroup()
+        let collectQueue = DispatchQueue(label: "bg3mm.drop-url-collector")
+        var urls: [URL] = []
 
         for provider in providers {
             if provider.canLoadObject(ofClass: URL.self) {
                 group.enter()
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
                     if let url = url {
-                        urls.append(url)
+                        collectQueue.sync { urls.append(url) }
                     }
                     group.leave()
                 }
