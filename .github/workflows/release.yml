@@ -1,0 +1,78 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          echo -n "$CERTIFICATE_P12" | base64 --decode -o "$CERT_PATH"
+          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          rm "$CERT_PATH"
+
+          # Allow codesign to access the keychain
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
+
+      - name: Build, sign, and create DMG
+        env:
+          SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+        run: |
+          ./scripts/build-app.sh --sign "$SIGN_IDENTITY"
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          DMG_PATH="build/BG3 Mac Mod Manager.dmg"
+
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --wait
+
+          xcrun stapler staple "$DMG_PATH"
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/BG3 Mac Mod Manager.dmg
+          generate_release_notes: true
+          draft: true
