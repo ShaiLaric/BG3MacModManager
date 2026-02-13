@@ -71,6 +71,10 @@ final class AppState: ObservableObject {
     /// Request to navigate to a specific sidebar tab (set by action buttons, consumed by ContentView).
     @Published var navigateToSidebarItem: String?
 
+    /// Missing mods from the last load order import (for summary dialog).
+    @Published var showImportSummary: Bool = false
+    @Published var importSummaryResult: LoadOrderImportSummary?
+
     /// Whether the initial duplicate check has been performed (auto-show only on first load).
     private var hasPerformedInitialDuplicateCheck = false
 
@@ -86,6 +90,8 @@ final class AppState: ObservableObject {
     let textExportService = TextExportService()
     let archiveService = ArchiveService()
     let categoryService = CategoryInferenceService()
+    let loadOrderImportService = LoadOrderImportService()
+    let nexusURLService = NexusURLService()
 
     // MARK: - Initialization
 
@@ -1053,6 +1059,79 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Import Load Order (BG3MM / LSX)
+
+    /// Import a load order from an external file (BG3MM JSON or standalone modsettings.lsx).
+    func importLoadOrder(from url: URL) async {
+        do {
+            let result = try loadOrderImportService.parseFile(at: url)
+
+            guard !result.entries.isEmpty else {
+                errorMessage = "The imported file contains no mods."
+                showError = true
+                return
+            }
+
+            let allMods = activeMods + inactiveMods
+            var newActive: [ModInfo] = []
+            var usedUUIDs: Set<String> = []
+            var missingMods: [MissingModInfo] = []
+
+            for entry in result.entries {
+                guard !Constants.builtInModuleUUIDs.contains(entry.uuid) else { continue }
+
+                if let mod = allMods.first(where: { $0.uuid == entry.uuid }) {
+                    newActive.append(mod)
+                    usedUUIDs.insert(entry.uuid)
+                } else {
+                    missingMods.append(MissingModInfo(
+                        id: entry.uuid,
+                        name: entry.name,
+                        uuid: entry.uuid,
+                        nexusURL: nexusURLService.url(for: entry.uuid)
+                    ))
+                }
+            }
+
+            let newInactive = allMods
+                .filter { !usedUUIDs.contains($0.uuid) && !$0.isBasicGameModule }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            let base = allMods.filter { $0.isBasicGameModule }
+            activeMods = base + newActive.map { inferCategory(for: $0) }
+            inactiveMods = newInactive.map { inferCategory(for: $0) }
+
+            runValidation()
+
+            let totalInFile = result.entries.filter {
+                !Constants.builtInModuleUUIDs.contains($0.uuid)
+            }.count
+
+            if missingMods.isEmpty {
+                statusMessage = "Imported load order from \(result.sourceName) (\(newActive.count) mods)"
+            } else {
+                importSummaryResult = LoadOrderImportSummary(
+                    format: result.sourceName,
+                    totalInFile: totalInFile,
+                    matchedCount: newActive.count,
+                    missingMods: missingMods
+                )
+                showImportSummary = true
+                statusMessage = "Imported load order (\(newActive.count) matched, \(missingMods.count) missing)"
+            }
+        } catch {
+            showError(error)
+        }
+    }
+
+    // MARK: - Nexus URL
+
+    /// Set the Nexus Mods URL for a mod.
+    func setNexusURL(_ url: String?, for mod: ModInfo) {
+        nexusURLService.setURL(url, for: mod.uuid)
+        objectWillChange.send()
+    }
+
     // MARK: - Error Handling
 
     private func showError(_ error: Error) {
@@ -1060,4 +1139,20 @@ final class AppState: ObservableObject {
         showError = true
         statusMessage = "Error: \(error.localizedDescription)"
     }
+}
+
+// MARK: - Import Summary Types
+
+struct LoadOrderImportSummary {
+    let format: String
+    let totalInFile: Int
+    let matchedCount: Int
+    let missingMods: [MissingModInfo]
+}
+
+struct MissingModInfo: Identifiable {
+    let id: String
+    let name: String
+    let uuid: String
+    let nexusURL: String?
 }

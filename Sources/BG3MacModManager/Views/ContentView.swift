@@ -85,6 +85,10 @@ struct ContentView: View {
             DuplicateResolverView()
                 .environmentObject(appState)
         }
+        .sheet(isPresented: $appState.showImportSummary) {
+            ImportSummaryView()
+                .environmentObject(appState)
+        }
         .alert(
             "External modsettings.lsx Change Detected",
             isPresented: $appState.showExternalChangeAlert

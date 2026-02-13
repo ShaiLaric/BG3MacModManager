@@ -36,6 +36,11 @@ struct BG3MacModManagerApp: App {
                 }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
 
+                Button("Import Load Order...") {
+                    importLoadOrderPanel()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+
                 Divider()
 
                 Button("Refresh Mods") {
@@ -103,6 +108,24 @@ struct BG3MacModManagerApp: App {
         if panel.runModal() == .OK, let url = panel.urls.first {
             Task {
                 await appState.importFromSaveFile(url: url)
+            }
+        }
+    }
+
+    private func importLoadOrderPanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Load Order"
+        panel.message = "Select a BG3 Mod Manager JSON export or modsettings.lsx file"
+        panel.allowedContentTypes = [
+            .init(filenameExtension: "json")!,
+            .init(filenameExtension: "lsx")!,
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.urls.first {
+            Task {
+                await appState.importLoadOrder(from: url)
             }
         }
     }

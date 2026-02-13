@@ -4,6 +4,8 @@ import SwiftUI
 struct ModDetailView: View {
     let mod: ModInfo
     @EnvironmentObject var appState: AppState
+    @State private var isEditingNexusURL = false
+    @State private var editingNexusURL = ""
 
     var body: some View {
         ScrollView {
@@ -14,6 +16,11 @@ struct ModDetailView: View {
                 // Category
                 if !mod.isBasicGameModule {
                     categorySection
+                }
+
+                // Nexus Mods link
+                if !mod.isBasicGameModule {
+                    nexusSection
                 }
 
                 // Per-mod warnings
@@ -139,6 +146,95 @@ struct ModDetailView: View {
             get: { appState.categoryService.override(for: mod.uuid) },
             set: { appState.setCategoryOverride($0, for: mod) }
         )
+    }
+
+    // MARK: - Nexus Mods
+
+    private var nexusSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Nexus Mods")
+                .font(.headline)
+
+            HStack(spacing: 8) {
+                let currentURL = appState.nexusURLService.url(for: mod.uuid)
+
+                if let urlString = currentURL, !urlString.isEmpty {
+                    Text(urlString)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+
+                    Spacer()
+
+                    Button {
+                        if let url = URL(string: urlString) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        Image(systemName: "safari")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open in browser")
+
+                    Button {
+                        editingNexusURL = urlString
+                        isEditingNexusURL = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit URL")
+
+                    Button {
+                        appState.setNexusURL(nil, for: mod)
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
+                    .help("Remove URL")
+                } else {
+                    Text("No URL set")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button("Set URL") {
+                        editingNexusURL = ""
+                        isEditingNexusURL = true
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+
+            if isEditingNexusURL {
+                HStack {
+                    TextField("https://www.nexusmods.com/baldursgate3/mods/...", text: $editingNexusURL)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                        .onSubmit { saveNexusURL() }
+
+                    Button("Save") { saveNexusURL() }
+                        .font(.caption)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+
+                    Button("Cancel") { isEditingNexusURL = false }
+                        .font(.caption)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    private func saveNexusURL() {
+        appState.setNexusURL(editingNexusURL.isEmpty ? nil : editingNexusURL, for: mod)
+        isEditingNexusURL = false
     }
 
     // MARK: - Metadata
