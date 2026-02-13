@@ -12,6 +12,7 @@ struct ContentView: View {
         case backups = "Backups"
         case scriptExtender = "Script Extender"
         case tools = "Tools"
+        case help = "Help"
 
         var id: String { rawValue }
 
@@ -22,6 +23,7 @@ struct ContentView: View {
             case .backups: return "clock.arrow.circlepath"
             case .scriptExtender: return "terminal"
             case .tools: return "wrench.and.screwdriver"
+            case .help: return "questionmark.circle"
             }
         }
     }
@@ -42,6 +44,8 @@ struct ContentView: View {
                 if let target = target {
                     if target == "scriptExtender" {
                         selectedSidebarItem = .scriptExtender
+                    } else if target == "help" {
+                        selectedSidebarItem = .help
                     }
                     appState.navigateToSidebarItem = nil
                 }
@@ -119,6 +123,22 @@ struct ContentView: View {
             let names = appState.lastImportedMods.map(\.name).joined(separator: ", ")
             Text("\(appState.lastImportedMods.count) new mod(s) imported: \(names)\n\nWould you like to add them to your active load order?")
         }
+        .confirmationDialog(
+            "Permanently Delete Mod\(appState.modsToDelete.count == 1 ? "" : "s")?",
+            isPresented: $appState.showDeleteModConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Permanently", role: .destructive) {
+                Task { await appState.confirmDeleteMods() }
+            }
+            Button("Cancel", role: .cancel) {
+                appState.modsToDelete = []
+                appState.showDeleteModConfirmation = false
+            }
+        } message: {
+            let names = appState.modsToDelete.map(\.name).joined(separator: ", ")
+            Text("This will permanently delete \(appState.modsToDelete.count) mod\(appState.modsToDelete.count == 1 ? "" : "s") from your Mods folder:\n\n\(names)\n\nThis action cannot be undone. The PAK file\(appState.modsToDelete.count == 1 ? "" : "s") will be removed from disk.")
+        }
     }
 
     // MARK: - Drop Target Overlay
@@ -170,6 +190,8 @@ struct ContentView: View {
             SEStatusView()
         case .tools:
             VersionGeneratorView()
+        case .help:
+            HelpView()
         }
     }
 

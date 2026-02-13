@@ -467,6 +467,19 @@ struct ModDetailView: View {
                     .buttonStyle(.plain)
                     .help("Reveal in Finder")
                 }
+
+                // Delete button for inactive mods only
+                if !mod.isBasicGameModule && !appState.activeMods.contains(where: { $0.uuid == mod.uuid }) {
+                    Button(role: .destructive) {
+                        appState.requestDeleteMod(mod)
+                    } label: {
+                        Label("Delete from Disk...", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Permanently remove this mod's PAK file from the Mods folder. This cannot be undone.")
+                    .padding(.top, 4)
+                }
             }
         }
     }

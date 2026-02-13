@@ -382,6 +382,22 @@ struct ModListView: View {
                                 Button("Extract to Folder...") {
                                     appState.extractMod(mod)
                                 }
+                                Divider()
+                                Button("Delete from Disk...", role: .destructive) {
+                                    appState.requestDeleteMod(mod)
+                                }
+                                .help("Permanently remove this mod's PAK file from the Mods folder")
+                            }
+                            if appState.selectedModIDs.count > 1 {
+                                let deleteCount = appState.inactiveMods.filter {
+                                    appState.selectedModIDs.contains($0.uuid) && $0.pakFilePath != nil && !$0.isBasicGameModule
+                                }.count
+                                if deleteCount > 0 {
+                                    Button("Delete \(deleteCount) Selected from Disk...", role: .destructive) {
+                                        appState.requestDeleteSelectedMods()
+                                    }
+                                    .help("Permanently remove the selected mods' PAK files from the Mods folder")
+                                }
                             }
                         }
                 }
