@@ -95,7 +95,7 @@ struct ImportSummaryView: View {
             }
         }
         .padding(20)
-        .frame(width: 500, minHeight: 300, maxHeight: 600)
+        .frame(minWidth: 500, minHeight: 300, maxHeight: 600)
     }
 
     private func statBox(label: String, value: String) -> some View {
