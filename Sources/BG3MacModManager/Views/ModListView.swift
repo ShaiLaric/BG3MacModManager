@@ -6,7 +6,6 @@ struct ModListView: View {
     @State private var searchText = ""
     @State private var warningsExpanded = false
     @State private var activeDropTargeted = false
-    @State private var inactiveDropTargeted = false
 
     var body: some View {
         HSplitView {
@@ -287,7 +286,7 @@ struct ModListView: View {
                 ForEach(filteredActiveMods) { mod in
                     ModRowView(mod: mod, isActive: true)
                         .tag(mod.uuid)
-                        .draggable(mod.uuid)
+                        .moveDisabled(!searchText.isEmpty)
                         .contextMenu {
                             if !mod.isBasicGameModule {
                                 Button("Deactivate") { appState.deactivateMod(mod) }
@@ -388,27 +387,6 @@ struct ModListView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
-            .dropDestination(for: String.self) { uuids, _ in
-                var deactivated = 0
-                for uuid in uuids {
-                    if let mod = appState.activeMods.first(where: { $0.uuid == uuid }),
-                       !mod.isBasicGameModule {
-                        appState.deactivateMod(mod)
-                        deactivated += 1
-                    }
-                }
-                return deactivated > 0
-            } isTargeted: { targeted in
-                inactiveDropTargeted = targeted
-            }
-            .overlay {
-                if inactiveDropTargeted {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary, lineWidth: 2)
-                        .padding(2)
-                        .allowsHitTesting(false)
-                }
-            }
         }
     }
 
