@@ -7,10 +7,10 @@ set -euo pipefail
 #   ./scripts/build-app.sh                                        # Ad-hoc signing (local use)
 #   ./scripts/build-app.sh --sign "Developer ID Application: Name (TeamID)"
 #   ./scripts/build-app.sh --sign "Developer ID Application: Name (TeamID)" \
-#       --notarize --keychain-profile "BG3ModManager"
+#       --notarize --keychain-profile "BG3MacModManager"
 #
 # First-time notarization setup (store credentials once):
-#   xcrun notarytool store-credentials "BG3ModManager" \
+#   xcrun notarytool store-credentials "BG3MacModManager" \
 #       --apple-id you@email.com --team-id TEAMID --password <app-specific-password>
 #
 # For a styled DMG with icon positioning, install create-dmg:
@@ -225,11 +225,11 @@ elif [ -n "$SIGN_IDENTITY" ]; then
     echo "macOS Gatekeeper requires notarization for downloaded apps."
     echo ""
     echo "To notarize, first store credentials (one-time setup):"
-    echo "  xcrun notarytool store-credentials \"BG3ModManager\" \\"
+    echo "  xcrun notarytool store-credentials \"BG3MacModManager\" \\"
     echo "      --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID"
     echo ""
     echo "Then build with notarization:"
-    echo "  $0 --sign \"$SIGN_IDENTITY\" --notarize --keychain-profile \"BG3ModManager\""
+    echo "  $0 --sign \"$SIGN_IDENTITY\" --notarize --keychain-profile \"BG3MacModManager\""
 else
     echo ""
     echo "To distribute via GitHub Releases, re-run with signing and notarization:"
