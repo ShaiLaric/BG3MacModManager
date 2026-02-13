@@ -228,3 +228,30 @@ game to deactivate externally-managed mods. BG3MM auto-deletes this folder.
   "paladin oath"; combiner variants; gameplay patterns like "party size", "carry weight")
 - **New gameplay name patterns**: Previously missing from `inferFromName()` — now covers camp events,
   fast travel, difficulty, auto loot, merchants, etc.
+
+### 11. Permanent Mod Deletion [Post-Plan - DONE]
+
+- Delete inactive mods' PAK files from disk with confirmation dialog
+- Context menu, multi-select context menu, and detail panel entry points
+- Companion info.json cleanup alongside PAK deletion
+
+### 12. In-App Help Documentation [Post-Plan - DONE]
+
+- Comprehensive HelpView with 13 sections covering all app features
+- Added to sidebar navigation and Help menu (Cmd+?)
+
+---
+
+## Future Ideas Backlog
+
+### History Tracking
+Track mod activation/deactivation history over time. Show a timeline of when mods were added, removed, or reordered. Useful for diagnosing which change caused a problem.
+
+### Richer Organization
+More ways to categorize and group mods beyond the 5-tier system — user-defined tags, collections/groups, favorites, notes per mod. Could also support nested folders or color labels in the mod list.
+
+### Context Menu Enhancements
+Expand right-click actions further — "Move to Top/Bottom" for quick reordering, "Open on Nexus Mods" shortcut, "Copy mod info" for sharing, "Disable and hide" for mods you want to keep on disk but never see.
+
+### Nexus API Integration
+Connect to the Nexus Mods API to auto-fetch mod metadata (descriptions, images, changelogs), check for mod updates, and provide one-click links to download pages. Requires a Nexus API key from the user.
