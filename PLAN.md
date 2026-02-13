@@ -240,6 +240,27 @@ game to deactivate externally-managed mods. BG3MM auto-deletes this folder.
 - Comprehensive HelpView with 13 sections covering all app features
 - Added to sidebar navigation and Help menu (Cmd+?)
 
+### 13. Context Menu Enhancements [Phase 6 - DONE]
+
+**Implemented:**
+- **Move to Top / Move to Bottom**: Right-click context menu actions for active mods to quickly
+  reposition them at the start (after the base game module) or end of the load order
+- **Open on Nexus Mods**: Opens the mod's stored Nexus Mods URL if one has been set via the
+  Detail Panel; otherwise performs a Nexus Mods search for the mod by name
+- **Copy Mod Info**: Copies a formatted multi-line summary of the mod (name, author, version,
+  UUID, category, folder, Nexus URL) to the clipboard for sharing or issue reporting
+
+### Phase 6: Context Menu Enhancements (P4) [DONE]
+
+- **Move to Top / Move to Bottom**: Quick reordering actions for active mods via right-click context menu
+- **Open on Nexus Mods**: Opens stored Nexus URL or falls back to Nexus search by mod name
+- **Copy Mod Info**: Copies formatted mod summary (name, author, version, UUID, category, Nexus URL) to clipboard
+
+**Modified files:**
+- `App/AppState.swift` — added `moveModToTop()`, `moveModToBottom()`, `copyModInfo()`, `openNexusPage()` methods
+- `Views/ModListView.swift` — added "Move to Top", "Move to Bottom", "Open on Nexus Mods", "Copy Mod Info" to active and inactive mod context menus
+- `Views/HelpView.swift` — added "Context Menu Actions" subsection to Mod Management help, updated Manual Ordering and Tools sections
+
 ---
 
 ## Future Ideas Backlog

@@ -201,6 +201,68 @@ final class AppState: ObservableObject {
         runValidation()
     }
 
+    /// Move an active mod to the top of the load order (after the base game module).
+    func moveModToTop(_ mod: ModInfo) {
+        guard !mod.isBasicGameModule,
+              let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
+        activeMods.remove(at: index)
+        // Insert after the last base-game module so GustavX stays at position 0
+        let insertIndex = activeMods.firstIndex(where: { !$0.isBasicGameModule }) ?? 0
+        activeMods.insert(mod, at: insertIndex)
+        runValidation()
+        statusMessage = "Moved \(mod.name) to top of load order"
+    }
+
+    /// Move an active mod to the bottom of the load order.
+    func moveModToBottom(_ mod: ModInfo) {
+        guard !mod.isBasicGameModule,
+              let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
+        activeMods.remove(at: index)
+        activeMods.append(mod)
+        runValidation()
+        statusMessage = "Moved \(mod.name) to bottom of load order"
+    }
+
+    /// Copy a formatted summary of the mod's info to the clipboard.
+    func copyModInfo(_ mod: ModInfo) {
+        var lines: [String] = []
+        lines.append(mod.name)
+        if mod.author != "Unknown" {
+            lines.append("Author: \(mod.author)")
+        }
+        lines.append("Version: \(mod.version.description)")
+        lines.append("UUID: \(mod.uuid)")
+        if let category = mod.category {
+            lines.append("Category: \(category.displayName)")
+        }
+        if !mod.folder.isEmpty {
+            lines.append("Folder: \(mod.folder)")
+        }
+        if let nexusURL = nexusURLService.url(for: mod.uuid) {
+            lines.append("Nexus: \(nexusURL)")
+        }
+
+        let text = lines.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        statusMessage = "Copied info for \(mod.name)"
+    }
+
+    /// Open the Nexus Mods page for a mod. Uses the stored URL if available,
+    /// otherwise opens a Nexus search for the mod name.
+    func openNexusPage(for mod: ModInfo) {
+        if let urlString = nexusURLService.url(for: mod.uuid),
+           let url = URL(string: urlString) {
+            NSWorkspace.shared.open(url)
+        } else {
+            // Fall back to a Nexus Mods search
+            let query = mod.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? mod.name
+            if let searchURL = URL(string: "https://www.nexusmods.com/baldursgate3/search/?gsearch=\(query)") {
+                NSWorkspace.shared.open(searchURL)
+            }
+        }
+    }
+
     // MARK: - Save to modsettings.lsx
 
     /// Write the current active mod configuration to modsettings.lsx.
