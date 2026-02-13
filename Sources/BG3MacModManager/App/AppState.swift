@@ -846,12 +846,74 @@ final class AppState: ObservableObject {
             if FileManager.default.fileExists(atPath: pakURL.path) {
                 try FileManager.default.removeItem(at: pakURL)
             }
+            // Also remove the companion info.json if one exists
+            removeCompanionInfoJson(for: pakURL)
             await refreshMods()
             detectDuplicateGroups()
             statusMessage = "Deleted \(mod.pakFileName ?? mod.name)"
         } catch {
             showError(error)
         }
+    }
+
+    // MARK: - Permanent Mod Deletion
+
+    /// State for the delete-mod confirmation dialog.
+    @Published var showDeleteModConfirmation: Bool = false
+    @Published var modsToDelete: [ModInfo] = []
+
+    /// Request permanent deletion of a single deactivated mod.
+    /// Shows a confirmation dialog before proceeding.
+    func requestDeleteMod(_ mod: ModInfo) {
+        modsToDelete = [mod]
+        showDeleteModConfirmation = true
+    }
+
+    /// Request permanent deletion of multiple selected deactivated mods.
+    /// Shows a confirmation dialog before proceeding.
+    func requestDeleteSelectedMods() {
+        let toDelete = inactiveMods.filter {
+            selectedModIDs.contains($0.uuid) && $0.pakFilePath != nil && !$0.isBasicGameModule
+        }
+        guard !toDelete.isEmpty else { return }
+        modsToDelete = toDelete
+        showDeleteModConfirmation = true
+    }
+
+    /// Permanently delete the PAK files (and companion info.json files) for the queued mods.
+    /// Called after the user confirms the deletion dialog.
+    func confirmDeleteMods() async {
+        var deleted = 0
+        for mod in modsToDelete {
+            guard let pakURL = mod.pakFilePath else { continue }
+            do {
+                if FileManager.default.fileExists(atPath: pakURL.path) {
+                    try FileManager.default.removeItem(at: pakURL)
+                    removeCompanionInfoJson(for: pakURL)
+                    deleted += 1
+                }
+            } catch {
+                showError(error)
+            }
+        }
+
+        let names = modsToDelete.map(\.name)
+        modsToDelete = []
+        showDeleteModConfirmation = false
+        selectedModIDs.removeAll()
+
+        await refreshMods()
+
+        if deleted > 0 {
+            statusMessage = "Permanently deleted \(deleted) mod\(deleted == 1 ? "" : "s"): \(names.joined(separator: ", "))"
+        }
+    }
+
+    /// Remove the companion `<baseName>.json` info file that lives next to a PAK in the Mods folder.
+    private func removeCompanionInfoJson(for pakURL: URL) {
+        let baseName = pakURL.deletingPathExtension().lastPathComponent
+        let jsonURL = pakURL.deletingLastPathComponent().appendingPathComponent("\(baseName).json")
+        try? FileManager.default.removeItem(at: jsonURL)
     }
 
     /// Sort active mods by dependency order using topological sort.

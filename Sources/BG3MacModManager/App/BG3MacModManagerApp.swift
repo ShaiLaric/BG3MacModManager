@@ -50,6 +50,11 @@ struct BG3MacModManagerApp: App {
             }
 
             CommandGroup(replacing: .help) {
+                Button("BG3 Mac Mod Manager Help") {
+                    appState.navigateToSidebarItem = "help"
+                }
+                .keyboardShortcut("?", modifiers: .command)
+                Divider()
                 Button("Open Mods Folder") {
                     appState.launchService.openModsFolder()
                 }
