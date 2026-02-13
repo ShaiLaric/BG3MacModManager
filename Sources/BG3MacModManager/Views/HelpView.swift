@@ -636,6 +636,7 @@ struct HelpView: View {
             helpTitle("Keyboard Shortcuts")
 
             helpShortcutTable([
+                ("Cmd+S", "Save Load Order"),
                 ("Cmd+I", "Import Mod"),
                 ("Cmd+Shift+I", "Import from Save File"),
                 ("Cmd+Shift+L", "Import Load Order"),

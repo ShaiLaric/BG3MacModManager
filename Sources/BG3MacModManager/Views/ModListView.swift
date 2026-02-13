@@ -11,6 +11,10 @@ struct ModListView: View {
         HSplitView {
             // Left: Active + Inactive mod lists
             VStack(spacing: 0) {
+                // Primary action bar
+                actionBar
+                Divider()
+
                 // Warnings banner
                 if !appState.warnings.isEmpty {
                     warningsBanner
@@ -40,6 +44,47 @@ struct ModListView: View {
                 appState.selectedModID = nil
             }
         }
+    }
+
+    // MARK: - Action Bar
+
+    private var actionBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                Task { await appState.saveModSettings() }
+            } label: {
+                Label("Save Load Order", systemImage: "arrow.down.doc.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .disabled(appState.isLoading)
+            .help("Save mod order to modsettings.lsx")
+
+            Button {
+                Task { await appState.refreshAll() }
+            } label: {
+                Label("Rescan Folder", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(appState.isLoading)
+            .help("Rescan mods folder")
+
+            Spacer()
+
+            Button {
+                appState.launchGame()
+            } label: {
+                Label("Launch BG3", systemImage: "play.fill")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(!appState.isGameInstalled)
+            .help("Launch Baldur's Gate 3")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 
     // MARK: - Multi-Select Action Bar

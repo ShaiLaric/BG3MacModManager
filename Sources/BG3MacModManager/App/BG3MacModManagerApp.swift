@@ -49,6 +49,13 @@ struct BG3MacModManagerApp: App {
                 .keyboardShortcut("r", modifiers: .command)
             }
 
+            CommandGroup(replacing: .saveItem) {
+                Button("Save Load Order") {
+                    Task { await appState.saveModSettings() }
+                }
+                .keyboardShortcut("s", modifiers: .command)
+            }
+
             CommandGroup(replacing: .help) {
                 Button("BG3 Mac Mod Manager Help") {
                     appState.navigateToSidebarItem = "help"
