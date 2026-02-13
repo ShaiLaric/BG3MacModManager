@@ -193,6 +193,20 @@ struct HelpView: View {
                 "File path with Reveal in Finder",
             ])
 
+            helpHeading("Context Menu Actions")
+            helpText("""
+            Right-click any mod to access a context menu with actions specific to that mod. \
+            The available actions depend on whether the mod is active or inactive:
+            """)
+            helpBulletList([
+                "Move to Top / Move to Bottom — Quickly reorder an active mod to the start or end of the load order (after the base game module).",
+                "Open on Nexus Mods — Opens the mod's Nexus Mods page if a URL has been set, or searches Nexus Mods for the mod by name.",
+                "Copy Mod Info — Copies a formatted summary of the mod (name, author, version, UUID, category, and Nexus URL) to the clipboard. Useful for sharing your mod list or reporting issues.",
+                "Copy UUID — Copies just the mod's UUID to the clipboard.",
+                "Extract to Folder... — Extracts the mod's PAK archive contents to a folder of your choice.",
+                "Delete from Disk... — Permanently removes an inactive mod's PAK file (see Deleting Mods section).",
+            ])
+
             helpHeading("Multi-Selection")
             helpText("""
             Hold Cmd and click to select multiple mods, or Shift+Click to select a range. \
@@ -223,7 +237,8 @@ struct HelpView: View {
             helpHeading("Manual Ordering")
             helpText("""
             Drag mods up or down in the Active Mods list to reorder them. The number shown on the \
-            left of each row indicates its position in the load order.
+            left of each row indicates its position in the load order. You can also right-click a mod \
+            and choose \"Move to Top\" or \"Move to Bottom\" for quick repositioning.
             """)
 
             helpHeading("Smart Sort")
@@ -564,6 +579,13 @@ struct HelpView: View {
             helpText("""
             In the Detail Panel's File Info section, click the arrow button next to the file \
             path to reveal the mod's .pak file in Finder.
+            """)
+
+            helpHeading("Copy Mod Info")
+            helpText("""
+            Right-click any mod and choose \"Copy Mod Info\" to copy a formatted summary including \
+            name, author, version, UUID, category, and Nexus URL to the clipboard. This is useful \
+            for sharing your mod setup or filing bug reports.
             """)
 
             helpHeading("Copy UUID / Folder")

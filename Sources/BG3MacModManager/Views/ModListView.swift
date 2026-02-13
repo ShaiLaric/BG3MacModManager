@@ -301,7 +301,30 @@ struct ModListView: View {
                                     }
                                 }
                             }
+
+                            if !mod.isBasicGameModule {
+                                Divider()
+                                Button("Move to Top") {
+                                    appState.moveModToTop(mod)
+                                }
+                                .help("Move this mod to the top of the load order (after the base game module)")
+                                Button("Move to Bottom") {
+                                    appState.moveModToBottom(mod)
+                                }
+                                .help("Move this mod to the end of the load order")
+                            }
+
                             Divider()
+                            Button("Open on Nexus Mods") {
+                                appState.openNexusPage(for: mod)
+                            }
+                            .help(appState.nexusURLService.url(for: mod.uuid) != nil
+                                  ? "Open this mod's Nexus Mods page"
+                                  : "Search for this mod on Nexus Mods")
+                            Button("Copy Mod Info") {
+                                appState.copyModInfo(mod)
+                            }
+                            .help("Copy mod name, author, version, UUID, and other details to the clipboard")
                             Button("Copy UUID") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
@@ -373,6 +396,16 @@ struct ModListView: View {
                                 }
                             }
                             Divider()
+                            Button("Open on Nexus Mods") {
+                                appState.openNexusPage(for: mod)
+                            }
+                            .help(appState.nexusURLService.url(for: mod.uuid) != nil
+                                  ? "Open this mod's Nexus Mods page"
+                                  : "Search for this mod on Nexus Mods")
+                            Button("Copy Mod Info") {
+                                appState.copyModInfo(mod)
+                            }
+                            .help("Copy mod name, author, version, UUID, and other details to the clipboard")
                             Button("Copy UUID") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
