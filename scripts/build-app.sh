@@ -100,5 +100,8 @@ if [ -z "$SIGN_IDENTITY" ]; then
     echo "  xcrun stapler staple \"$APP_BUNDLE\""
 fi
 
-echo "To create a DMG for distribution:"
-echo "  hdiutil create -volname \"${APP_NAME}\" -srcfolder \"$APP_BUNDLE\" -ov -format UDZO \"$BUILD_DIR/${APP_NAME}.dmg\""
+# Create DMG for distribution
+DMG_PATH="$BUILD_DIR/${APP_NAME}.dmg"
+echo "Creating DMG..."
+hdiutil create -volname "${APP_NAME}" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DMG_PATH"
+echo "DMG created: $DMG_PATH"
