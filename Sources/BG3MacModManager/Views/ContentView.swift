@@ -255,16 +255,14 @@ struct ContentView: View {
 
     // MARK: - Drag-and-Drop from Finder
 
-    private static let acceptedDropTypes: [UTType] = {
-        var types: [UTType] = [.zip]
-        if let pak = UTType(filenameExtension: "pak") { types.append(pak) }
-        if let tar = UTType(filenameExtension: "tar") { types.append(tar) }
-        if let gz = UTType(filenameExtension: "gz") { types.append(gz) }
-        if let tgz = UTType(filenameExtension: "tgz") { types.append(tgz) }
-        if let bz2 = UTType(filenameExtension: "bz2") { types.append(bz2) }
-        if let xz = UTType(filenameExtension: "xz") { types.append(xz) }
-        return types
-    }()
+    /// Supported file extensions for mod import (pak + archive formats).
+    private static let supportedDropExtensions: Set<String> = [
+        "pak", "zip", "tar", "gz", "tgz", "bz2", "xz"
+    ]
+
+    /// Accept `.fileURL` so Finder drops always match regardless of dynamic UTType
+    /// registration. Extension filtering happens in handleFileDrop / importMods.
+    private static let acceptedDropTypes: [UTType] = [.fileURL]
 
     private func handleFileDrop(_ providers: [NSItemProvider]) {
         let group = DispatchGroup()
@@ -284,9 +282,12 @@ struct ContentView: View {
         }
 
         group.notify(queue: .main) {
-            guard !urls.isEmpty else { return }
+            let supported = urls.filter {
+                Self.supportedDropExtensions.contains($0.pathExtension.lowercased())
+            }
+            guard !supported.isEmpty else { return }
             Task {
-                await appState.importMods(from: urls)
+                await appState.importMods(from: supported)
             }
         }
     }
