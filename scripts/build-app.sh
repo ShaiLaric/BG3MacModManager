@@ -29,6 +29,7 @@ NOTARIZE=false
 KEYCHAIN_PROFILE=""
 APPLE_ID=""
 TEAM_ID=""
+USE_HDIUTIL=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -52,9 +53,13 @@ while [[ $# -gt 0 ]]; do
             TEAM_ID="$2"
             shift 2
             ;;
+        --use-hdiutil)
+            USE_HDIUTIL=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--sign IDENTITY] [--notarize --keychain-profile PROFILE]"
+            echo "Usage: $0 [--sign IDENTITY] [--notarize --keychain-profile PROFILE] [--use-hdiutil]"
             exit 1
             ;;
     esac
@@ -142,7 +147,16 @@ echo ""
 # --- Create DMG with /Applications shortcut ---
 echo "Creating DMG with Applications shortcut..."
 
-if command -v create-dmg &> /dev/null; then
+# Clean up any leftover mounted volumes from previous runs
+VOLUME_PATH="/Volumes/${APP_NAME}"
+if [ -d "$VOLUME_PATH" ]; then
+    echo "Unmounting leftover volume: $VOLUME_PATH"
+    hdiutil detach "$VOLUME_PATH" -force 2>/dev/null || true
+    # Give macOS a moment to fully release the volume
+    sleep 1
+fi
+
+if command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
     # Use create-dmg for a styled DMG with drag-and-drop layout
     echo "Using create-dmg for styled DMG..."
 
@@ -163,13 +177,41 @@ if command -v create-dmg &> /dev/null; then
     fi
 
     # create-dmg returns exit code 2 if it can't set a background image (non-fatal)
-    create-dmg "${CREATE_DMG_ARGS[@]}" "$DMG_PATH" "$APP_BUNDLE" || {
-        EXIT_CODE=$?
-        if [ $EXIT_CODE -ne 2 ]; then
-            echo "Error: create-dmg failed with exit code $EXIT_CODE"
-            exit $EXIT_CODE
+    # Retry once on permission errors (exit code 1) with a delay
+    MAX_RETRIES=2
+    RETRY_COUNT=0
+    SUCCESS=false
+
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ] && ! $SUCCESS; do
+        if [ $RETRY_COUNT -gt 0 ]; then
+            echo "Retrying create-dmg (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)..."
+            sleep 2
         fi
-    }
+
+        if create-dmg "${CREATE_DMG_ARGS[@]}" "$DMG_PATH" "$APP_BUNDLE"; then
+            SUCCESS=true
+        else
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 2 ]; then
+                # Exit code 2 is non-fatal (background image warning)
+                SUCCESS=true
+            elif [ $RETRY_COUNT -ge $((MAX_RETRIES - 1)) ]; then
+                # Final attempt failed - show diagnostics
+                echo "Error: create-dmg failed with exit code $EXIT_CODE"
+                echo "Diagnostic information:"
+                echo "  - Volume path: $VOLUME_PATH"
+                if [ -d "$VOLUME_PATH" ]; then
+                    echo "  - Volume is currently mounted"
+                    ls -la "$VOLUME_PATH" 2>/dev/null || echo "  - Cannot list volume contents"
+                else
+                    echo "  - Volume is not mounted"
+                fi
+                echo "To bypass create-dmg, retry with: $0 --use-hdiutil"
+                exit $EXIT_CODE
+            fi
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+        fi
+    done
 else
     # Fallback: create DMG with /Applications symlink using hdiutil
     echo "Note: 'create-dmg' not found. Creating basic DMG with /Applications shortcut."
