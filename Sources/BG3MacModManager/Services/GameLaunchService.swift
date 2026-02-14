@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import Foundation
 
 /// Launches Baldur's Gate 3 via Steam with optional Script Extender support.

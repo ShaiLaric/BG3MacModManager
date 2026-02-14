@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import SwiftUI
 
 /// App settings view (shown in Preferences window).

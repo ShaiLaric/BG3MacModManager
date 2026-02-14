@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import Foundation
 
 /// Parses external load order formats (BG3MM JSON, standalone modsettings.lsx)

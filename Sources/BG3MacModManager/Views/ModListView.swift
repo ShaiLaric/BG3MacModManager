@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import SwiftUI
 
 /// Main mod management view with active (load order) and inactive mod lists.

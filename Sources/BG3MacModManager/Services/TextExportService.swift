@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import Foundation
 
 /// Exports active mod lists to various text formats (CSV, Markdown, plain text).

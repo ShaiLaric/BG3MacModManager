@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import SwiftUI
 
 /// In-app help documentation covering all features of BG3 Mac Mod Manager.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import Foundation
 
 /// Reads and writes the `modsettings.lsx` file that controls which mods BG3 loads.

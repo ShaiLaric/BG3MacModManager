@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import SwiftUI
 
 /// Sheet for resolving duplicate UUID conflicts by choosing which PAK files to keep.
