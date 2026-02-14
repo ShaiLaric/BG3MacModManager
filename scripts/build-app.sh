@@ -221,78 +221,62 @@ if command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
 fi
 
 if ! $CREATE_DMG_SUCCESS; then
-    # Fallback: create DMG from a staging directory using hdiutil -srcfolder
+    # Fallback: create DMG from a staging directory
     if ! command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
         echo "Note: 'create-dmg' not found. For a styled DMG, install: brew install create-dmg"
     fi
-    echo "Creating basic DMG with /Applications shortcut..."
-    echo ""
 
     # Aggressively clean up any stale volumes/disk attachments from create-dmg
-    # that might conflict with the volume name "BG3 Mac Mod Manager"
     hdiutil detach "$VOLUME_PATH" -force 2>/dev/null || true
-    # Also detach by scanning hdiutil's attachment table for our volume name
     hdiutil info 2>/dev/null | grep -B 20 "${APP_NAME}" | grep "^/dev/" | awk '{print $1}' | while read -r dev; do
         hdiutil detach "$dev" -force 2>/dev/null || true
     done
     sleep 1
 
-    # Quick smoke test: can hdiutil create any disk image at all?
-    SMOKE_TEST_DMG="$BUILD_DIR/.hdiutil-test-$$.dmg"
-    SMOKE_TEST_DIR="$BUILD_DIR/.hdiutil-test-$$"
-    mkdir -p "$SMOKE_TEST_DIR"
-    touch "$SMOKE_TEST_DIR/test"
-    if hdiutil create -volname "test" -srcfolder "$SMOKE_TEST_DIR" \
-        -format UDZO "$SMOKE_TEST_DMG" >/dev/null 2>&1; then
-        HDIUTIL_WORKS=true
-    else
-        HDIUTIL_WORKS=false
-    fi
-    rm -rf "$SMOKE_TEST_DIR" "$SMOKE_TEST_DMG"
+    # Assemble staging directory with app bundle and Applications symlink
+    STAGING_DIR="$BUILD_DIR/dmg-staging"
+    rm -rf "$STAGING_DIR"
+    mkdir -p "$STAGING_DIR"
 
-    if ! $HDIUTIL_WORKS; then
-        echo "Error: hdiutil cannot create disk images on this system."
-        echo "Smoke test with an empty folder also failed."
-        echo ""
-        echo "Possible causes:"
-        echo "  - Your terminal needs Full Disk Access (System Settings > Privacy & Security)"
-        echo "  - An MDM profile or security tool is blocking disk image creation"
-        echo "  - Try running: hdiutil create -volname test -srcfolder /tmp -format UDZO /tmp/test.dmg"
-        echo "    to test manually"
-    else
-        # hdiutil works in general — the issue is specific to our content
-        # Assemble staging directory with app bundle and Applications symlink
-        STAGING_DIR="$BUILD_DIR/dmg-staging"
+    echo "Preparing staging directory..."
+    cp -R "$APP_BUNDLE" "$STAGING_DIR/" || {
+        echo "Error: Failed to copy app bundle to staging directory"
         rm -rf "$STAGING_DIR"
-        mkdir -p "$STAGING_DIR"
+        exit 1
+    }
+    ln -s /Applications "$STAGING_DIR/Applications"
 
-        echo "Preparing staging directory..."
-        cp -R "$APP_BUNDLE" "$STAGING_DIR/" || {
-            echo "Error: Failed to copy app bundle to staging directory"
-            rm -rf "$STAGING_DIR"
-            exit 1
-        }
-        ln -s /Applications "$STAGING_DIR/Applications"
+    # Strip extended attributes from the staging copy — quarantine and
+    # provenance attrs can cause hdiutil "Operation not permitted" errors
+    xattr -cr "$STAGING_DIR" 2>/dev/null || true
 
-        # Strip extended attributes from the staging copy — quarantine and
-        # provenance attrs can cause hdiutil "Operation not permitted" errors
-        xattr -cr "$STAGING_DIR" 2>/dev/null || true
+    # Attempt 1: hdiutil create -srcfolder (internally mounts a temp volume)
+    echo "Creating disk image (srcfolder method)..."
+    rm -f "$DMG_PATH"
+    if hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
+        -format UDZO "$DMG_PATH" 2>&1; then
+        CREATE_DMG_SUCCESS=true
+    else
+        echo "hdiutil create -srcfolder failed, trying makehybrid..."
+    fi
 
-        # Create compressed DMG directly from staging directory
-        echo "Creating disk image..."
+    # Attempt 2: hdiutil makehybrid — writes HFS+ image directly from folder
+    # contents WITHOUT mounting any temporary volume, bypassing mount-related
+    # permission restrictions entirely
+    if ! $CREATE_DMG_SUCCESS; then
         rm -f "$DMG_PATH"
-        if hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
-            -format UDZO "$DMG_PATH" 2>&1; then
+        if hdiutil makehybrid -o "$DMG_PATH" \
+            -hfs \
+            -default-volume-name "${APP_NAME}" \
+            "$STAGING_DIR" 2>&1; then
             CREATE_DMG_SUCCESS=true
         else
-            echo ""
-            echo "hdiutil failed despite smoke test passing."
-            echo "This is likely caused by extended attributes on the app bundle."
+            echo "hdiutil makehybrid also failed."
         fi
-
-        # Cleanup
-        rm -rf "$STAGING_DIR"
     fi
+
+    # Cleanup staging
+    rm -rf "$STAGING_DIR"
 fi
 
 # --- ZIP fallback when all DMG methods fail ---
