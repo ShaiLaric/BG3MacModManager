@@ -136,6 +136,13 @@ else
     codesign --force --sign - "$APP_BUNDLE"
 fi
 
+# Remove extended attributes and locked flags before DMG creation
+# These can prevent hdiutil from accessing the app bundle
+echo "Removing extended attributes from app bundle..."
+xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+# Remove any immutable flags (uchg) that cause "Operation not permitted"
+chflags -R nouchg "$APP_BUNDLE" 2>/dev/null || true
+
 # Show build result
 APP_SIZE=$(du -sh "$APP_BUNDLE" | cut -f1)
 echo ""
@@ -225,7 +232,29 @@ else
     cp -R "$APP_BUNDLE" "$STAGING_DIR/"
     ln -s /Applications "$STAGING_DIR/Applications"
 
-    hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH"
+    # Use APFS format explicitly (HFS+ is broken on recent macOS)
+    # -srcfolder creates DMG from directory contents
+    echo "Creating disk image..."
+    hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
+        -ov -format UDZO -fs APFS "$DMG_PATH" 2>&1 | tee /tmp/hdiutil-output.log || {
+        EXIT_CODE=$?
+        echo "Error: hdiutil create failed with exit code $EXIT_CODE"
+        echo ""
+        echo "Diagnostic information:"
+        echo "  - App bundle: $APP_BUNDLE"
+        echo "  - Staging dir: $STAGING_DIR"
+        if [ -d "$APP_BUNDLE" ]; then
+            echo "  - Extended attributes:"
+            xattr -l "$APP_BUNDLE" 2>/dev/null || echo "    (none or cannot read)"
+            echo "  - File flags:"
+            ls -lO "$APP_BUNDLE" 2>/dev/null | head -3 || echo "    (cannot read)"
+        fi
+        echo ""
+        echo "Last 10 lines of hdiutil output:"
+        tail -10 /tmp/hdiutil-output.log
+        rm -rf "$STAGING_DIR"
+        exit $EXIT_CODE
+    }
 
     rm -rf "$STAGING_DIR"
 fi
