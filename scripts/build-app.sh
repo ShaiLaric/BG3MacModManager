@@ -229,40 +229,82 @@ else
     rm -rf "$STAGING_DIR"
     mkdir -p "$STAGING_DIR"
 
-    cp -R "$APP_BUNDLE" "$STAGING_DIR/"
-    ln -s /Applications "$STAGING_DIR/Applications"
+    # Strip extended attributes from app bundle (defensive)
+    echo "Removing extended attributes from app bundle..."
+    xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+    chflags -R nouchg "$APP_BUNDLE" 2>/dev/null || true
 
-    # CRITICAL: Strip extended attributes from the staging directory
-    # cp -R preserves xattrs, so we must strip AFTER copying
-    echo "Removing extended attributes from staging directory..."
-    xattr -cr "$STAGING_DIR" 2>/dev/null || true
-    chflags -R nouchg "$STAGING_DIR" 2>/dev/null || true
+    # Calculate required size for DMG (app bundle + overhead)
+    # Add 50MB for filesystem overhead and Applications symlink
+    APP_SIZE=$(du -sm "$APP_BUNDLE" | cut -f1)
+    DMG_SIZE=$((APP_SIZE + 50))
 
-    # Use APFS format explicitly (HFS+ is broken on recent macOS)
-    # -srcfolder creates DMG from directory contents
-    echo "Creating disk image..."
-    hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
-        -ov -format UDZO -fs APFS "$DMG_PATH" 2>&1 | tee /tmp/hdiutil-output.log || {
+    echo "Creating disk image (${DMG_SIZE}MB)..."
+
+    # Step 1: Create empty read-write DMG
+    TEMP_DMG="$BUILD_DIR/temp-${APP_NAME}.dmg"
+    rm -f "$TEMP_DMG"
+    hdiutil create -size ${DMG_SIZE}m -fs APFS -volname "${APP_NAME}" \
+        -format UDRW "$TEMP_DMG" >/dev/null || {
+        echo "Error: Failed to create empty DMG"
+        exit 1
+    }
+
+    # Step 2: Mount the DMG
+    echo "Mounting disk image..."
+    MOUNT_OUTPUT=$(hdiutil attach -readwrite -noverify -noautoopen "$TEMP_DMG" 2>&1) || {
+        echo "Error: Failed to mount DMG"
+        echo "$MOUNT_OUTPUT"
+        exit 1
+    }
+    VOLUME_PATH=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)
+
+    if [ -z "$VOLUME_PATH" ]; then
+        echo "Error: Could not determine mount path"
+        exit 1
+    fi
+
+    echo "Mounted at: $VOLUME_PATH"
+
+    # Step 3: Copy files to mounted volume
+    echo "Copying files to disk image..."
+    cp -R "$APP_BUNDLE" "$VOLUME_PATH/" || {
         EXIT_CODE=$?
-        echo "Error: hdiutil create failed with exit code $EXIT_CODE"
-        echo ""
-        echo "Diagnostic information:"
-        echo "  - App bundle: $APP_BUNDLE"
-        echo "  - Staging dir: $STAGING_DIR"
-        if [ -d "$APP_BUNDLE" ]; then
-            echo "  - Extended attributes:"
-            xattr -l "$APP_BUNDLE" 2>/dev/null || echo "    (none or cannot read)"
-            echo "  - File flags:"
-            ls -lO "$APP_BUNDLE" 2>/dev/null | head -3 || echo "    (cannot read)"
-        fi
-        echo ""
-        echo "Last 10 lines of hdiutil output:"
-        tail -10 /tmp/hdiutil-output.log
-        rm -rf "$STAGING_DIR"
+        echo "Error: Failed to copy app bundle to DMG"
+        hdiutil detach "$VOLUME_PATH" 2>/dev/null || true
         exit $EXIT_CODE
     }
 
-    rm -rf "$STAGING_DIR"
+    ln -s /Applications "$VOLUME_PATH/Applications" || {
+        EXIT_CODE=$?
+        echo "Error: Failed to create Applications symlink"
+        hdiutil detach "$VOLUME_PATH" 2>/dev/null || true
+        exit $EXIT_CODE
+    }
+
+    # Step 4: Unmount the DMG
+    echo "Unmounting disk image..."
+    hdiutil detach "$VOLUME_PATH" >/dev/null || {
+        echo "Warning: Failed to unmount cleanly, retrying..."
+        sleep 2
+        hdiutil detach "$VOLUME_PATH" -force >/dev/null || {
+            echo "Error: Failed to unmount DMG"
+            exit 1
+        }
+    }
+
+    # Step 5: Convert to compressed format
+    echo "Compressing disk image..."
+    rm -f "$DMG_PATH"
+    hdiutil convert "$TEMP_DMG" -format UDZO -o "$DMG_PATH" >/dev/null || {
+        echo "Error: Failed to compress DMG"
+        exit 1
+    }
+
+    # Cleanup
+    rm -f "$TEMP_DMG"
+
+    echo "DMG created successfully: $DMG_PATH"
 fi
 
 # Sign the DMG itself if using Developer ID
