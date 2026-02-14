@@ -163,6 +163,8 @@ if [ -d "$VOLUME_PATH" ]; then
     sleep 1
 fi
 
+CREATE_DMG_SUCCESS=false
+
 if command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
     # Use create-dmg for a styled DMG with drag-and-drop layout
     echo "Using create-dmg for styled DMG..."
@@ -187,42 +189,43 @@ if command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
     # Retry once on permission errors (exit code 1) with a delay
     MAX_RETRIES=2
     RETRY_COUNT=0
-    SUCCESS=false
 
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ] && ! $SUCCESS; do
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ] && ! $CREATE_DMG_SUCCESS; do
         if [ $RETRY_COUNT -gt 0 ]; then
             echo "Retrying create-dmg (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)..."
             sleep 2
         fi
 
         if create-dmg "${CREATE_DMG_ARGS[@]}" "$DMG_PATH" "$APP_BUNDLE"; then
-            SUCCESS=true
+            CREATE_DMG_SUCCESS=true
         else
             EXIT_CODE=$?
             if [ $EXIT_CODE -eq 2 ]; then
                 # Exit code 2 is non-fatal (background image warning)
-                SUCCESS=true
-            elif [ $RETRY_COUNT -ge $((MAX_RETRIES - 1)) ]; then
-                # Final attempt failed - show diagnostics
-                echo "Error: create-dmg failed with exit code $EXIT_CODE"
-                echo "Diagnostic information:"
-                echo "  - Volume path: $VOLUME_PATH"
-                if [ -d "$VOLUME_PATH" ]; then
-                    echo "  - Volume is currently mounted"
-                    ls -la "$VOLUME_PATH" 2>/dev/null || echo "  - Cannot list volume contents"
-                else
-                    echo "  - Volume is not mounted"
-                fi
-                echo "To bypass create-dmg, retry with: $0 --use-hdiutil"
-                exit $EXIT_CODE
+                CREATE_DMG_SUCCESS=true
             fi
             RETRY_COUNT=$((RETRY_COUNT + 1))
         fi
     done
-else
+
+    if ! $CREATE_DMG_SUCCESS; then
+        echo "Warning: create-dmg failed (likely a macOS permissions issue)."
+        echo "Falling back to hdiutil method..."
+        # Clean up any partial DMG or leftover mounts from create-dmg
+        rm -f "$DMG_PATH"
+        if [ -d "$VOLUME_PATH" ]; then
+            hdiutil detach "$VOLUME_PATH" -force 2>/dev/null || true
+            sleep 1
+        fi
+    fi
+fi
+
+if ! $CREATE_DMG_SUCCESS; then
     # Fallback: create DMG with /Applications symlink using hdiutil
-    echo "Note: 'create-dmg' not found. Creating basic DMG with /Applications shortcut."
-    echo "      For a styled DMG, install: brew install create-dmg"
+    if ! command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
+        echo "Note: 'create-dmg' not found. For a styled DMG, install: brew install create-dmg"
+    fi
+    echo "Creating basic DMG with /Applications shortcut..."
     echo ""
 
     # Calculate required size for DMG (app bundle + overhead)
