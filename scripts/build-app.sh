@@ -221,112 +221,42 @@ if command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
 fi
 
 if ! $CREATE_DMG_SUCCESS; then
-    # Fallback: create DMG with /Applications symlink using hdiutil
+    # Fallback: create DMG from a staging directory using hdiutil -srcfolder
+    # This avoids mounting a DMG and writing to it, which can fail with
+    # "Operation not permitted" on macOS due to SIP/Full Disk Access restrictions.
     if ! command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
         echo "Note: 'create-dmg' not found. For a styled DMG, install: brew install create-dmg"
     fi
     echo "Creating basic DMG with /Applications shortcut..."
     echo ""
 
-    # Calculate required size for DMG (app bundle + overhead)
-    # Add 50MB for filesystem overhead and Applications symlink
-    APP_SIZE_MB=$(du -sm "$APP_BUNDLE" | cut -f1)
-    DMG_SIZE=$((APP_SIZE_MB + 50))
+    # Step 1: Assemble staging directory with app bundle and Applications symlink
+    STAGING_DIR="$BUILD_DIR/dmg-staging"
+    rm -rf "$STAGING_DIR"
+    mkdir -p "$STAGING_DIR"
 
-    echo "Creating disk image (${DMG_SIZE}MB)..."
-
-    # Step 1: Create empty read-write DMG with HFS+ filesystem
-    # HFS+ is the standard for distribution DMGs; APFS has known permission
-    # enforcement bugs on mounted volumes (rdar://32629312)
-    TEMP_DMG="$BUILD_DIR/temp-${APP_NAME}.dmg"
-    rm -f "$TEMP_DMG"
-    hdiutil create -size ${DMG_SIZE}m -fs HFS+ -volname "${APP_NAME}" \
-        "$TEMP_DMG" >/dev/null || {
-        echo "Error: Failed to create empty DMG"
+    echo "Preparing staging directory..."
+    cp -R "$APP_BUNDLE" "$STAGING_DIR/" || {
+        echo "Error: Failed to copy app bundle to staging directory"
+        rm -rf "$STAGING_DIR"
         exit 1
     }
+    ln -s /Applications "$STAGING_DIR/Applications"
 
-    # Step 2: Mount the DMG with ownership disabled
-    # -owners off: prevents permission enforcement on the mounted volume
-    # -nobrowse: prevents Finder/Spotlight interference during copy
-    echo "Mounting disk image..."
-    MOUNT_OUTPUT=$(hdiutil attach -readwrite -noverify -noautoopen -owners off -nobrowse "$TEMP_DMG" 2>&1) || {
-        echo "Error: Failed to mount DMG"
-        echo "$MOUNT_OUTPUT"
-        rm -f "$TEMP_DMG"
-        exit 1
-    }
-    VOLUME_PATH=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)
-
-    if [ -z "$VOLUME_PATH" ]; then
-        echo "Error: Could not determine mount path"
-        rm -f "$TEMP_DMG"
-        exit 1
-    fi
-
-    echo "Mounted at: $VOLUME_PATH"
-
-    # Brief pause to allow filesystem to settle after mount
-    sleep 1
-
-    # Step 3: Copy files to mounted volume
-    # Use ditto (Apple's preferred tool for copying app bundles)
-    # It correctly handles code signatures, resource forks, and permissions
-    echo "Copying files to disk image..."
-    if ditto "$APP_BUNDLE" "$VOLUME_PATH/${APP_NAME}.app"; then
-        echo "  Copied with ditto"
-    elif rsync -a "$APP_BUNDLE/" "$VOLUME_PATH/${APP_NAME}.app/"; then
-        echo "  Copied with rsync (ditto failed)"
-    elif cp -R "$APP_BUNDLE" "$VOLUME_PATH/"; then
-        echo "  Copied with cp -R (ditto and rsync failed)"
-    else
-        EXIT_CODE=$?
-        echo "Error: Failed to copy app bundle to DMG (all methods failed)"
-        echo "Diagnostic information:"
-        echo "  Volume mount info:"
-        mount | grep "$VOLUME_PATH" || echo "  (volume not in mount table)"
-        echo "  Volume permissions:"
-        ls -la "$VOLUME_PATH/" 2>/dev/null || echo "  (cannot list volume)"
-        echo "  App bundle permissions:"
-        ls -la "$APP_BUNDLE" 2>/dev/null || echo "  (cannot list app bundle)"
-        hdiutil detach "$VOLUME_PATH" 2>/dev/null || true
-        rm -f "$TEMP_DMG"
-        exit $EXIT_CODE
-    fi
-
-    ln -s /Applications "$VOLUME_PATH/Applications" || {
-        EXIT_CODE=$?
-        echo "Error: Failed to create Applications symlink"
-        hdiutil detach "$VOLUME_PATH" 2>/dev/null || true
-        rm -f "$TEMP_DMG"
-        exit $EXIT_CODE
-    }
-
-    # Step 4: Unmount the DMG
-    echo "Unmounting disk image..."
-    sync  # Flush writes before unmount
-    sleep 1
-    hdiutil detach "$VOLUME_PATH" >/dev/null 2>&1 || {
-        echo "Warning: Failed to unmount cleanly, retrying..."
-        sleep 3
-        hdiutil detach "$VOLUME_PATH" -force >/dev/null 2>&1 || {
-            echo "Error: Failed to unmount DMG"
-            rm -f "$TEMP_DMG"
-            exit 1
-        }
-    }
-
-    # Step 5: Convert to compressed format
-    echo "Compressing disk image..."
+    # Step 2: Create compressed DMG directly from staging directory
+    # -srcfolder reads from local filesystem (no mounted volume permissions needed)
+    # -format UDZO produces a compressed, read-only distribution image
+    echo "Creating disk image..."
     rm -f "$DMG_PATH"
-    hdiutil convert "$TEMP_DMG" -format UDZO -o "$DMG_PATH" >/dev/null || {
-        echo "Error: Failed to compress DMG"
-        rm -f "$TEMP_DMG"
+    hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
+        -ov -format UDZO "$DMG_PATH" >/dev/null || {
+        echo "Error: Failed to create DMG"
+        rm -rf "$STAGING_DIR"
         exit 1
     }
 
     # Cleanup
-    rm -f "$TEMP_DMG"
+    rm -rf "$STAGING_DIR"
 
     echo "DMG created successfully: $DMG_PATH"
 fi
