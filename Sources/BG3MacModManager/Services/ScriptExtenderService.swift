@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import Foundation
 
 /// Detects and manages bg3se-macos (Script Extender for macOS) integration.

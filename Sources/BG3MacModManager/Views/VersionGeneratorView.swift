@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import SwiftUI
 
 /// Tool for converting between BG3's Version64 Int64 format and human-readable version strings.
