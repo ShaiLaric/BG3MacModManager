@@ -222,43 +222,97 @@ fi
 
 if ! $CREATE_DMG_SUCCESS; then
     # Fallback: create DMG from a staging directory using hdiutil -srcfolder
-    # This avoids mounting a DMG and writing to it, which can fail with
-    # "Operation not permitted" on macOS due to SIP/Full Disk Access restrictions.
     if ! command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
         echo "Note: 'create-dmg' not found. For a styled DMG, install: brew install create-dmg"
     fi
     echo "Creating basic DMG with /Applications shortcut..."
     echo ""
 
-    # Step 1: Assemble staging directory with app bundle and Applications symlink
-    STAGING_DIR="$BUILD_DIR/dmg-staging"
-    rm -rf "$STAGING_DIR"
-    mkdir -p "$STAGING_DIR"
+    # Aggressively clean up any stale volumes/disk attachments from create-dmg
+    # that might conflict with the volume name "BG3 Mac Mod Manager"
+    hdiutil detach "$VOLUME_PATH" -force 2>/dev/null || true
+    # Also detach by scanning hdiutil's attachment table for our volume name
+    hdiutil info 2>/dev/null | grep -B 20 "${APP_NAME}" | grep "^/dev/" | awk '{print $1}' | while read -r dev; do
+        hdiutil detach "$dev" -force 2>/dev/null || true
+    done
+    sleep 1
 
-    echo "Preparing staging directory..."
-    cp -R "$APP_BUNDLE" "$STAGING_DIR/" || {
-        echo "Error: Failed to copy app bundle to staging directory"
+    # Quick smoke test: can hdiutil create any disk image at all?
+    SMOKE_TEST_DMG="$BUILD_DIR/.hdiutil-test-$$.dmg"
+    SMOKE_TEST_DIR="$BUILD_DIR/.hdiutil-test-$$"
+    mkdir -p "$SMOKE_TEST_DIR"
+    touch "$SMOKE_TEST_DIR/test"
+    if hdiutil create -volname "test" -srcfolder "$SMOKE_TEST_DIR" \
+        -format UDZO "$SMOKE_TEST_DMG" >/dev/null 2>&1; then
+        HDIUTIL_WORKS=true
+    else
+        HDIUTIL_WORKS=false
+    fi
+    rm -rf "$SMOKE_TEST_DIR" "$SMOKE_TEST_DMG"
+
+    if ! $HDIUTIL_WORKS; then
+        echo "Error: hdiutil cannot create disk images on this system."
+        echo "Smoke test with an empty folder also failed."
+        echo ""
+        echo "Possible causes:"
+        echo "  - Your terminal needs Full Disk Access (System Settings > Privacy & Security)"
+        echo "  - An MDM profile or security tool is blocking disk image creation"
+        echo "  - Try running: hdiutil create -volname test -srcfolder /tmp -format UDZO /tmp/test.dmg"
+        echo "    to test manually"
+    else
+        # hdiutil works in general — the issue is specific to our content
+        # Assemble staging directory with app bundle and Applications symlink
+        STAGING_DIR="$BUILD_DIR/dmg-staging"
         rm -rf "$STAGING_DIR"
-        exit 1
-    }
-    ln -s /Applications "$STAGING_DIR/Applications"
+        mkdir -p "$STAGING_DIR"
 
-    # Step 2: Create compressed DMG directly from staging directory
-    # -srcfolder reads from local filesystem (no mounted volume permissions needed)
-    # -format UDZO produces a compressed, read-only distribution image
-    echo "Creating disk image..."
-    rm -f "$DMG_PATH"
-    hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
-        -ov -format UDZO "$DMG_PATH" >/dev/null || {
-        echo "Error: Failed to create DMG"
+        echo "Preparing staging directory..."
+        cp -R "$APP_BUNDLE" "$STAGING_DIR/" || {
+            echo "Error: Failed to copy app bundle to staging directory"
+            rm -rf "$STAGING_DIR"
+            exit 1
+        }
+        ln -s /Applications "$STAGING_DIR/Applications"
+
+        # Strip extended attributes from the staging copy — quarantine and
+        # provenance attrs can cause hdiutil "Operation not permitted" errors
+        xattr -cr "$STAGING_DIR" 2>/dev/null || true
+
+        # Create compressed DMG directly from staging directory
+        echo "Creating disk image..."
+        rm -f "$DMG_PATH"
+        if hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
+            -format UDZO "$DMG_PATH" 2>&1; then
+            CREATE_DMG_SUCCESS=true
+        else
+            echo ""
+            echo "hdiutil failed despite smoke test passing."
+            echo "This is likely caused by extended attributes on the app bundle."
+        fi
+
+        # Cleanup
         rm -rf "$STAGING_DIR"
+    fi
+fi
+
+# --- ZIP fallback when all DMG methods fail ---
+if ! $CREATE_DMG_SUCCESS; then
+    ZIP_PATH="$BUILD_DIR/${APP_NAME}.zip"
+    echo ""
+    echo "DMG creation failed. Creating ZIP archive instead..."
+    rm -f "$ZIP_PATH"
+    # Use ditto to create a macOS-friendly ZIP that preserves code signatures
+    if ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ZIP_PATH"; then
+        ZIP_SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
+        echo ""
+        echo "=== Build Complete (ZIP) ==="
+        echo "ZIP: $ZIP_PATH ($ZIP_SIZE)"
+    else
+        echo "Error: ZIP creation also failed"
         exit 1
-    }
-
-    # Cleanup
-    rm -rf "$STAGING_DIR"
-
-    echo "DMG created successfully: $DMG_PATH"
+    fi
+    # Skip DMG-specific steps (signing, notarization) — they don't apply to ZIP
+    exit 0
 fi
 
 # Sign the DMG itself if using Developer ID
