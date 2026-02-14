@@ -53,12 +53,21 @@ struct ModListView: View {
             Button {
                 Task { await appState.saveModSettings() }
             } label: {
-                Label("Save Load Order", systemImage: "arrow.down.doc.fill")
+                HStack(spacing: 4) {
+                    Label("Save Load Order", systemImage: "arrow.down.doc.fill")
+                    if appState.hasUnsavedChanges {
+                        Circle()
+                            .fill(Color.white.opacity(0.9))
+                            .frame(width: 6, height: 6)
+                    }
+                }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
             .disabled(appState.isLoading)
-            .help("Save mod order to modsettings.lsx")
+            .help(appState.hasUnsavedChanges
+                ? "Save mod order to modsettings.lsx (unsaved changes)"
+                : "Save mod order to modsettings.lsx")
 
             Button {
                 Task { await appState.refreshAll() }

@@ -170,9 +170,24 @@ struct ContentView: View {
         List(SidebarItem.allCases, selection: $selectedSidebarItem) { item in
             Label(item.rawValue, systemImage: item.icon)
                 .tag(item)
+                .badge(sidebarBadge(for: item))
         }
         .listStyle(.sidebar)
         .frame(minWidth: 180)
+    }
+
+    private func sidebarBadge(for item: SidebarItem) -> Int {
+        switch item {
+        case .mods:
+            // Show critical + warning count so users see issues from any tab
+            return appState.warnings.filter { $0.severity == .critical || $0.severity == .warning }.count
+        case .profiles:
+            return appState.profiles.count
+        case .backups:
+            return appState.backups.count
+        default:
+            return 0
+        }
     }
 
     // MARK: - Detail View
@@ -237,6 +252,10 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
+            Text("\(appState.activeMods.count) active / \(appState.inactiveMods.count) inactive")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .help("Total mod counts")
             if let se = appState.seStatus {
                 HStack(spacing: 4) {
                     Circle()

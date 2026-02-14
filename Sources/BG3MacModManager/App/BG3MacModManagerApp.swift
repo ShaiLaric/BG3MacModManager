@@ -54,6 +54,28 @@ struct BG3MacModManagerApp: App {
                     Task { await appState.saveModSettings() }
                 }
                 .keyboardShortcut("s", modifiers: .command)
+
+                Divider()
+
+                Button("Export Load Order as ZIP...") {
+                    appState.exportLoadOrderToZip()
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(appState.activeMods.isEmpty || appState.isExporting)
+            }
+
+            CommandGroup(after: .toolbar) {
+                Button("Deactivate Selected") {
+                    appState.deactivateSelectedMods()
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(appState.selectedModIDs.isEmpty)
+
+                Button("Launch Baldur's Gate 3") {
+                    appState.launchGame()
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(!appState.isGameInstalled)
             }
 
             CommandGroup(replacing: .help) {

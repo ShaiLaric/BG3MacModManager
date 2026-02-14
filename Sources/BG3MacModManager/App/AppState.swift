@@ -75,6 +75,9 @@ final class AppState: ObservableObject {
     @Published var showImportSummary: Bool = false
     @Published var importSummaryResult: LoadOrderImportSummary?
 
+    /// Whether the in-memory load order differs from what is saved on disk.
+    @Published var hasUnsavedChanges: Bool = false
+
     /// Whether the initial duplicate check has been performed (auto-show only on first load).
     private var hasPerformedInitialDuplicateCheck = false
 
@@ -125,6 +128,7 @@ final class AppState: ObservableObject {
             activeMods = result.active.map { inferCategory(for: $0) }
             inactiveMods = result.inactive.map { inferCategory(for: $0) }
             statusMessage = "Found \(activeMods.count) active, \(inactiveMods.count) inactive mods"
+            hasUnsavedChanges = false
             runValidation()
             if !hasPerformedInitialDuplicateCheck {
                 hasPerformedInitialDuplicateCheck = true
@@ -166,6 +170,7 @@ final class AppState: ObservableObject {
         guard let index = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
         inactiveMods.remove(at: index)
         activeMods.append(mod)
+        hasUnsavedChanges = true
         runValidation()
     }
 
@@ -176,6 +181,7 @@ final class AppState: ObservableObject {
         activeMods.remove(at: index)
         inactiveMods.append(mod)
         inactiveMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        hasUnsavedChanges = true
         runValidation()
     }
 
@@ -183,6 +189,7 @@ final class AppState: ObservableObject {
     func activateAll() {
         activeMods.append(contentsOf: inactiveMods)
         inactiveMods.removeAll()
+        hasUnsavedChanges = true
         runValidation()
     }
 
@@ -192,12 +199,14 @@ final class AppState: ObservableObject {
         inactiveMods.append(contentsOf: toDeactivate)
         inactiveMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         activeMods.removeAll(where: { !$0.isBasicGameModule })
+        hasUnsavedChanges = true
         runValidation()
     }
 
     /// Move a mod in the active load order.
     func moveActiveMod(from source: IndexSet, to destination: Int) {
         activeMods.move(fromOffsets: source, toOffset: destination)
+        hasUnsavedChanges = true
         runValidation()
     }
 
@@ -209,6 +218,7 @@ final class AppState: ObservableObject {
         // Insert after the last base-game module so GustavX stays at position 0
         let insertIndex = activeMods.firstIndex(where: { !$0.isBasicGameModule }) ?? 0
         activeMods.insert(mod, at: insertIndex)
+        hasUnsavedChanges = true
         runValidation()
         statusMessage = "Moved \(mod.name) to top of load order"
     }
@@ -219,6 +229,7 @@ final class AppState: ObservableObject {
               let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
         activeMods.remove(at: index)
         activeMods.append(mod)
+        hasUnsavedChanges = true
         runValidation()
         statusMessage = "Moved \(mod.name) to bottom of load order"
     }
@@ -304,6 +315,7 @@ final class AppState: ObservableObject {
                 ? "Saved \(activeMods.count) mods to modsettings.lsx (locked)"
                 : "Saved \(activeMods.count) mods to modsettings.lsx (WARNING: lock failed)"
 
+            hasUnsavedChanges = false
             await refreshBackups()
             showSaveConfirmation = false
             pendingSaveWarnings = []
@@ -361,6 +373,7 @@ final class AppState: ObservableObject {
 
         activeMods = newActive
         inactiveMods = newInactive
+        hasUnsavedChanges = true
         statusMessage = "Loaded profile '\(profile.name)'"
         runValidation()
     }
@@ -782,7 +795,10 @@ final class AppState: ObservableObject {
                 activated += 1
             }
         }
-        if activated > 0 { runValidation() }
+        if activated > 0 {
+            hasUnsavedChanges = true
+            runValidation()
+        }
         return activated
     }
 
@@ -812,7 +828,10 @@ final class AppState: ObservableObject {
                 }
             }
         }
-        if totalActivated > 0 { runValidation() }
+        if totalActivated > 0 {
+            hasUnsavedChanges = true
+            runValidation()
+        }
         return totalActivated
     }
 
@@ -829,6 +848,7 @@ final class AppState: ObservableObject {
             }
         }
         selectedModIDs.removeAll()
+        hasUnsavedChanges = true
         runValidation()
         statusMessage = "Activated \(toActivate.count) mod(s)"
     }
@@ -847,6 +867,7 @@ final class AppState: ObservableObject {
         }
         inactiveMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         selectedModIDs.removeAll()
+        hasUnsavedChanges = true
         runValidation()
         statusMessage = "Deactivated \(toDeactivate.count) mod(s)"
     }
@@ -861,6 +882,7 @@ final class AppState: ObservableObject {
         let modsToMove = selectedActive.map(\.element)
         let indicesToRemove = IndexSet(selectedActive.map(\.offset))
         activeMods.move(fromOffsets: indicesToRemove, toOffset: destination)
+        hasUnsavedChanges = true
         runValidation()
         statusMessage = "Moved \(modsToMove.count) mod(s)"
     }
@@ -985,6 +1007,7 @@ final class AppState: ObservableObject {
 
         if let sorted = validationService.topologicalSort(mods: nonBase) {
             activeMods = base + sorted
+            hasUnsavedChanges = true
             runValidation()
             statusMessage = "Mods sorted by dependency order"
         } else {
@@ -1020,6 +1043,7 @@ final class AppState: ObservableObject {
         }
 
         activeMods = base + sorted
+        hasUnsavedChanges = true
         runValidation()
 
         let categorized = nonBase.filter { $0.category != nil }.count
@@ -1176,6 +1200,7 @@ final class AppState: ObservableObject {
             activeMods = base + newActive.map { inferCategory(for: $0) }
             inactiveMods = newInactive.map { inferCategory(for: $0) }
 
+            hasUnsavedChanges = true
             runValidation()
             statusMessage = "Imported load order from save file (\(newActive.count) mods)"
         } catch {
@@ -1225,6 +1250,7 @@ final class AppState: ObservableObject {
             activeMods = base + newActive.map { inferCategory(for: $0) }
             inactiveMods = newInactive.map { inferCategory(for: $0) }
 
+            hasUnsavedChanges = true
             runValidation()
 
             let totalInFile = result.entries.filter {
