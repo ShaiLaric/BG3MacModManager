@@ -248,17 +248,42 @@ if ! $CREATE_DMG_SUCCESS; then
     # -format UDZO produces a compressed, read-only distribution image
     echo "Creating disk image..."
     rm -f "$DMG_PATH"
-    hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
-        -ov -format UDZO "$DMG_PATH" >/dev/null || {
-        echo "Error: Failed to create DMG"
-        rm -rf "$STAGING_DIR"
-        exit 1
-    }
+    if hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
+        -ov -format UDZO "$DMG_PATH" >/dev/null 2>&1; then
+        CREATE_DMG_SUCCESS=true
+        echo "DMG created successfully: $DMG_PATH"
+    else
+        echo "Warning: hdiutil create also failed (Operation not permitted)."
+    fi
 
     # Cleanup
     rm -rf "$STAGING_DIR"
+fi
 
-    echo "DMG created successfully: $DMG_PATH"
+# --- ZIP fallback when all DMG methods fail ---
+if ! $CREATE_DMG_SUCCESS; then
+    ZIP_PATH="$BUILD_DIR/${APP_NAME}.zip"
+    echo ""
+    echo "All DMG creation methods failed due to macOS permissions."
+    echo "Creating ZIP archive instead..."
+    rm -f "$ZIP_PATH"
+    # Use ditto to create a macOS-friendly ZIP that preserves code signatures
+    if ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ZIP_PATH"; then
+        ZIP_SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
+        echo ""
+        echo "=== Build Complete (ZIP) ==="
+        echo "ZIP: $ZIP_PATH ($ZIP_SIZE)"
+    else
+        echo "Error: ZIP creation also failed"
+        exit 1
+    fi
+    echo ""
+    echo "To create a DMG instead, grant Full Disk Access to your terminal app:"
+    echo "  System Settings > Privacy & Security > Full Disk Access"
+    echo "  Then add and enable your terminal (Terminal.app, iTerm2, etc.)"
+    echo "  and re-run this script."
+    # Skip DMG-specific steps (signing, notarization) — they don't apply to ZIP
+    exit 0
 fi
 
 # Sign the DMG itself if using Developer ID
