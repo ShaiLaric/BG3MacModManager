@@ -41,6 +41,15 @@ Built with Swift and SwiftUI, this tool provides a first-class macOS experience 
 - **Launch BG3** directly from the app via Steam
 - **Quick access**: open Mods folder, modsettings.lsx, or SE logs in Finder
 
+### Quality of Life Improvements
+- **Unsaved changes tracking**: Visual indicator on the Save button when load order has been modified but not saved
+- **Status bar mod count**: Always-visible "N active / M inactive" summary in the bottom status bar
+- **Sidebar badges**: Warning count badge on Mods tab, profile count, backup count
+- **Keyboard shortcuts**:
+  - `Cmd+Shift+E` — Export active load order as ZIP
+  - `Cmd+Delete` — Deactivate selected mods
+  - `Cmd+Shift+G` — Launch Baldur's Gate 3
+
 ## Requirements
 
 - **macOS 13 (Ventura)** or later
@@ -170,7 +179,7 @@ Contributions are welcome! Please feel free to open issues or submit pull reques
 
 ## License
 
-This project is open source. See the LICENSE file for details.
+This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
 
 ## Acknowledgments
 
