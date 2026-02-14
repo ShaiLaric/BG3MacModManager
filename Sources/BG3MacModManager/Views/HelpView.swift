@@ -123,8 +123,8 @@ struct HelpView: View {
                 "Install mods by placing .pak files in the Mods folder, or by importing them via File > Import Mod (Cmd+I) or drag-and-drop.",
                 "Activate mods by right-clicking an inactive mod and choosing \"Activate\", or by dragging mods from the Inactive list to the Active list.",
                 "Arrange load order by dragging mods up or down in the Active list, or use Smart Sort to auto-arrange by community convention.",
-                "Save your configuration by clicking the Save button in the toolbar (this writes modsettings.lsx).",
-                "Launch the game from the toolbar or directly from Steam.",
+                "Save your configuration by clicking Save Load Order in the action bar (this writes modsettings.lsx).",
+                "Launch the game from the action bar or directly from Steam.",
             ])
 
             helpHeading("Sidebar Navigation")
@@ -669,7 +669,7 @@ struct HelpView: View {
             helpHeading("Mods Not Showing Up")
             helpBulletList([
                 "Ensure .pak files are placed directly in the Mods folder (not in subfolders)",
-                "Click Refresh in the toolbar to rescan the Mods folder",
+                "Click Rescan Folder in the action bar to rescan the Mods folder",
                 "Check that the Mods folder path is correct in Settings > Paths",
                 "Some mods consist of multiple .pak files — all of them must be present",
             ])
