@@ -238,7 +238,7 @@ else
     TEMP_DMG="$BUILD_DIR/temp-${APP_NAME}.dmg"
     rm -f "$TEMP_DMG"
     hdiutil create -size ${DMG_SIZE}m -fs HFS+ -volname "${APP_NAME}" \
-        -format UDRW "$TEMP_DMG" >/dev/null || {
+        "$TEMP_DMG" >/dev/null || {
         echo "Error: Failed to create empty DMG"
         exit 1
     }
