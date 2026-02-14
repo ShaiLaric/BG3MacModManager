@@ -29,6 +29,10 @@ Tests/BG3MacModManagerTests/
 - **State**: Single `AppState` (ObservableObject) passed via `.environmentObject()`
 - **Async**: Use `Task { await ... }` in button actions for async AppState methods
 
+## Workflow
+
+**Always update CLAUDE.md when finishing updates.** After implementing a backlog item or making significant changes, mark the item as done in the Backlog section and update any affected documentation (project structure, key patterns, etc.) before committing.
+
 ## Dependencies
 
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) (>=0.9.19) — ZIP archive handling
