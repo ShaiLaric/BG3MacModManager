@@ -199,29 +199,6 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                Task { await appState.saveModSettings() }
-            } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
-            }
-            .help("Save mod order to modsettings.lsx")
-
-            Button {
-                Task { await appState.refreshAll() }
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .help("Rescan mods folder")
-
-            Button {
-                appState.launchGame()
-            } label: {
-                Label("Launch Game", systemImage: "play.fill")
-            }
-            .help("Launch Baldur's Gate 3")
-        }
-
         ToolbarItem(placement: .navigation) {
             Button {
                 appState.launchService.openModsFolder()
