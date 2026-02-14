@@ -225,70 +225,90 @@ else
     echo "      For a styled DMG, install: brew install create-dmg"
     echo ""
 
-    STAGING_DIR="$BUILD_DIR/dmg-staging"
-    rm -rf "$STAGING_DIR"
-    mkdir -p "$STAGING_DIR"
-
-    # Strip extended attributes from app bundle (defensive)
-    echo "Removing extended attributes from app bundle..."
-    xattr -cr "$APP_BUNDLE" 2>/dev/null || true
-    chflags -R nouchg "$APP_BUNDLE" 2>/dev/null || true
-
     # Calculate required size for DMG (app bundle + overhead)
     # Add 50MB for filesystem overhead and Applications symlink
-    APP_SIZE=$(du -sm "$APP_BUNDLE" | cut -f1)
-    DMG_SIZE=$((APP_SIZE + 50))
+    APP_SIZE_MB=$(du -sm "$APP_BUNDLE" | cut -f1)
+    DMG_SIZE=$((APP_SIZE_MB + 50))
 
     echo "Creating disk image (${DMG_SIZE}MB)..."
 
-    # Step 1: Create empty read-write DMG
+    # Step 1: Create empty read-write DMG with HFS+ filesystem
+    # HFS+ is the standard for distribution DMGs; APFS has known permission
+    # enforcement bugs on mounted volumes (rdar://32629312)
     TEMP_DMG="$BUILD_DIR/temp-${APP_NAME}.dmg"
     rm -f "$TEMP_DMG"
-    hdiutil create -size ${DMG_SIZE}m -fs APFS -volname "${APP_NAME}" \
+    hdiutil create -size ${DMG_SIZE}m -fs HFS+ -volname "${APP_NAME}" \
         -format UDRW "$TEMP_DMG" >/dev/null || {
         echo "Error: Failed to create empty DMG"
         exit 1
     }
 
-    # Step 2: Mount the DMG
+    # Step 2: Mount the DMG with ownership disabled
+    # -owners off: prevents permission enforcement on the mounted volume
+    # -nobrowse: prevents Finder/Spotlight interference during copy
     echo "Mounting disk image..."
-    MOUNT_OUTPUT=$(hdiutil attach -readwrite -noverify -noautoopen "$TEMP_DMG" 2>&1) || {
+    MOUNT_OUTPUT=$(hdiutil attach -readwrite -noverify -noautoopen -owners off -nobrowse "$TEMP_DMG" 2>&1) || {
         echo "Error: Failed to mount DMG"
         echo "$MOUNT_OUTPUT"
+        rm -f "$TEMP_DMG"
         exit 1
     }
     VOLUME_PATH=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)
 
     if [ -z "$VOLUME_PATH" ]; then
         echo "Error: Could not determine mount path"
+        rm -f "$TEMP_DMG"
         exit 1
     fi
 
     echo "Mounted at: $VOLUME_PATH"
 
+    # Brief pause to allow filesystem to settle after mount
+    sleep 1
+
     # Step 3: Copy files to mounted volume
+    # Use ditto (Apple's preferred tool for copying app bundles)
+    # It correctly handles code signatures, resource forks, and permissions
     echo "Copying files to disk image..."
-    cp -R "$APP_BUNDLE" "$VOLUME_PATH/" || {
+    if ditto "$APP_BUNDLE" "$VOLUME_PATH/${APP_NAME}.app"; then
+        echo "  Copied with ditto"
+    elif rsync -a "$APP_BUNDLE/" "$VOLUME_PATH/${APP_NAME}.app/"; then
+        echo "  Copied with rsync (ditto failed)"
+    elif cp -R "$APP_BUNDLE" "$VOLUME_PATH/"; then
+        echo "  Copied with cp -R (ditto and rsync failed)"
+    else
         EXIT_CODE=$?
-        echo "Error: Failed to copy app bundle to DMG"
+        echo "Error: Failed to copy app bundle to DMG (all methods failed)"
+        echo "Diagnostic information:"
+        echo "  Volume mount info:"
+        mount | grep "$VOLUME_PATH" || echo "  (volume not in mount table)"
+        echo "  Volume permissions:"
+        ls -la "$VOLUME_PATH/" 2>/dev/null || echo "  (cannot list volume)"
+        echo "  App bundle permissions:"
+        ls -la "$APP_BUNDLE" 2>/dev/null || echo "  (cannot list app bundle)"
         hdiutil detach "$VOLUME_PATH" 2>/dev/null || true
+        rm -f "$TEMP_DMG"
         exit $EXIT_CODE
-    }
+    fi
 
     ln -s /Applications "$VOLUME_PATH/Applications" || {
         EXIT_CODE=$?
         echo "Error: Failed to create Applications symlink"
         hdiutil detach "$VOLUME_PATH" 2>/dev/null || true
+        rm -f "$TEMP_DMG"
         exit $EXIT_CODE
     }
 
     # Step 4: Unmount the DMG
     echo "Unmounting disk image..."
-    hdiutil detach "$VOLUME_PATH" >/dev/null || {
+    sync  # Flush writes before unmount
+    sleep 1
+    hdiutil detach "$VOLUME_PATH" >/dev/null 2>&1 || {
         echo "Warning: Failed to unmount cleanly, retrying..."
-        sleep 2
-        hdiutil detach "$VOLUME_PATH" -force >/dev/null || {
+        sleep 3
+        hdiutil detach "$VOLUME_PATH" -force >/dev/null 2>&1 || {
             echo "Error: Failed to unmount DMG"
+            rm -f "$TEMP_DMG"
             exit 1
         }
     }
@@ -298,6 +318,7 @@ else
     rm -f "$DMG_PATH"
     hdiutil convert "$TEMP_DMG" -format UDZO -o "$DMG_PATH" >/dev/null || {
         echo "Error: Failed to compress DMG"
+        rm -f "$TEMP_DMG"
         exit 1
     }
 
