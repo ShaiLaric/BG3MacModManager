@@ -232,6 +232,12 @@ else
     cp -R "$APP_BUNDLE" "$STAGING_DIR/"
     ln -s /Applications "$STAGING_DIR/Applications"
 
+    # CRITICAL: Strip extended attributes from the staging directory
+    # cp -R preserves xattrs, so we must strip AFTER copying
+    echo "Removing extended attributes from staging directory..."
+    xattr -cr "$STAGING_DIR" 2>/dev/null || true
+    chflags -R nouchg "$STAGING_DIR" 2>/dev/null || true
+
     # Use APFS format explicitly (HFS+ is broken on recent macOS)
     # -srcfolder creates DMG from directory contents
     echo "Creating disk image..."
