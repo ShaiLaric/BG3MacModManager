@@ -165,7 +165,7 @@ struct PakInspectorView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(selectedURL == nil || !entries.contains { isMetaLsx($0.name) })
+            .disabled(selectedURL == nil || !entries.contains { isMetaLsx(path: $0.name) })
             .help("Extract and view the mod's meta.lsx metadata file")
 
             Button {
