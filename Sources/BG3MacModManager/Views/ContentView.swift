@@ -196,26 +196,20 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        // ZStack + .id() wrapper: Workaround for macOS 13+ NavigationSplitView bug
-        // where conditional detail views fail to update on selection change (Apple Bug 91311311).
-        // ZStack provides a stable container type; .id() forces view recreation on selection change.
-        ZStack {
-            switch selectedSidebarItem {
-            case .mods:
-                ModListView()
-            case .profiles:
-                ProfileManagerView()
-            case .backups:
-                BackupManagerView()
-            case .scriptExtender:
-                SEStatusView()
-            case .tools:
-                VersionGeneratorView()
-            case .help:
-                HelpView()
-            }
+        switch selectedSidebarItem {
+        case .mods:
+            ModListView()
+        case .profiles:
+            ProfileManagerView()
+        case .backups:
+            BackupManagerView()
+        case .scriptExtender:
+            SEStatusView()
+        case .tools:
+            VersionGeneratorView()
+        case .help:
+            HelpView()
         }
-        .id(selectedSidebarItem)
     }
 
     // MARK: - Toolbar
