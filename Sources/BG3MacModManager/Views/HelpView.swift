@@ -336,6 +336,13 @@ struct HelpView: View {
             can be undone with Cmd+Z and redone with Cmd+Shift+Z. The undo history stores up to \
             50 snapshots. Undo/Redo is also available from the Edit menu.
             """)
+
+            helpHeading("Unsaved Changes Protection")
+            helpText("""
+            If you close the window or quit the app while you have unsaved changes to your load \
+            order, a confirmation dialog appears asking whether to Save, Don't Save, or Cancel. \
+            This prevents accidentally losing your load order changes.
+            """)
         }
     }
 
@@ -735,6 +742,7 @@ struct HelpView: View {
                 ("Cmd+R", "Refresh Mods"),
                 ("Cmd+Delete", "Deactivate Selected Mods"),
                 ("Cmd+Shift+G", "Launch Baldur's Gate 3"),
+                ("Cmd+Q", "Quit (prompts to save if unsaved)"),
                 ("Cmd+,", "Open Settings"),
                 ("Cmd+?", "Open Help"),
                 ("Cmd+Click", "Add/remove from multi-selection"),

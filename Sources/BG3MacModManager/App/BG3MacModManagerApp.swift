@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 
 @main
 struct BG3MacModManagerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
 
     init() {
@@ -21,6 +22,7 @@ struct BG3MacModManagerApp: App {
                 .environmentObject(appState)
                 .onAppear {
                     appState.initialLoad()
+                    appDelegate.appState = appState
                 }
                 .frame(minWidth: 900, minHeight: 600)
         }
@@ -177,6 +179,97 @@ struct BG3MacModManagerApp: App {
             Task {
                 await appState.importLoadOrder(from: url)
             }
+        }
+    }
+}
+
+// MARK: - Unsaved Changes on Close/Quit
+
+/// Response from the unsaved changes confirmation alert.
+private enum UnsavedChangesResponse {
+    case save, dontSave, cancel
+}
+
+/// Application delegate that intercepts quit and window close to prompt for
+/// unsaved changes, implementing the standard macOS "Save changes?" dialog.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    /// Reference to the shared app state, set by BG3MacModManagerApp on appear.
+    var appState: AppState?
+
+    // MARK: - App Termination
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let appState = appState, appState.hasUnsavedChanges else {
+            return .terminateNow
+        }
+
+        let response = showUnsavedChangesAlert()
+        switch response {
+        case .save:
+            Task { @MainActor in
+                await appState.performSave()
+                NSApplication.shared.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        case .dontSave:
+            return .terminateNow
+        case .cancel:
+            return .terminateCancel
+        }
+    }
+
+    // MARK: - Window Close
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            if let window = NSApplication.shared.windows.first {
+                window.delegate = self
+            }
+        }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard let appState = appState, appState.hasUnsavedChanges else {
+            return true
+        }
+
+        let response = showUnsavedChangesAlert()
+        switch response {
+        case .save:
+            Task { @MainActor in
+                await appState.performSave()
+                sender.close()
+            }
+            return false
+        case .dontSave:
+            return true
+        case .cancel:
+            return false
+        }
+    }
+
+    // MARK: - Alert
+
+    private func showUnsavedChangesAlert() -> UnsavedChangesResponse {
+        let alert = NSAlert()
+        alert.messageText = "You have unsaved changes"
+        alert.informativeText = "Do you want to save your mod load order before closing?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[1].keyEquivalent = "d"
+        alert.buttons[1].keyEquivalentModifierMask = [.command]
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            return .save
+        case .alertSecondButtonReturn:
+            return .dontSave
+        default:
+            return .cancel
         }
     }
 }
