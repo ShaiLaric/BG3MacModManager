@@ -83,6 +83,29 @@ final class AppState: ObservableObject {
     /// Whether the initial duplicate check has been performed (auto-show only on first load).
     private var hasPerformedInitialDuplicateCheck = false
 
+    // MARK: - Undo/Redo
+
+    /// Snapshot of a load order state for undo/redo.
+    struct LoadOrderSnapshot {
+        let activeMods: [ModInfo]
+        let inactiveMods: [ModInfo]
+    }
+
+    /// Stack of previous states for undo.
+    private var undoStack: [LoadOrderSnapshot] = []
+
+    /// Stack of undone states for redo.
+    private var redoStack: [LoadOrderSnapshot] = []
+
+    /// Maximum number of undo levels to retain.
+    private let maxUndoLevels = 50
+
+    /// Whether an undo operation is available.
+    var canUndo: Bool { !undoStack.isEmpty }
+
+    /// Whether a redo operation is available.
+    var canRedo: Bool { !redoStack.isEmpty }
+
     // MARK: - Services
 
     let modSettingsService = ModSettingsService()
@@ -165,11 +188,48 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Undo/Redo Operations
+
+    /// Save the current load order state to the undo stack before making changes.
+    private func saveSnapshot() {
+        let snapshot = LoadOrderSnapshot(activeMods: activeMods, inactiveMods: inactiveMods)
+        undoStack.append(snapshot)
+        if undoStack.count > maxUndoLevels {
+            undoStack.removeFirst()
+        }
+        redoStack.removeAll()
+    }
+
+    /// Undo the last load order change.
+    func undo() {
+        guard let snapshot = undoStack.popLast() else { return }
+        let current = LoadOrderSnapshot(activeMods: activeMods, inactiveMods: inactiveMods)
+        redoStack.append(current)
+        activeMods = snapshot.activeMods
+        inactiveMods = snapshot.inactiveMods
+        hasUnsavedChanges = true
+        runValidation()
+        statusMessage = "Undid last change"
+    }
+
+    /// Redo the last undone load order change.
+    func redo() {
+        guard let snapshot = redoStack.popLast() else { return }
+        let current = LoadOrderSnapshot(activeMods: activeMods, inactiveMods: inactiveMods)
+        undoStack.append(current)
+        activeMods = snapshot.activeMods
+        inactiveMods = snapshot.inactiveMods
+        hasUnsavedChanges = true
+        runValidation()
+        statusMessage = "Redid last change"
+    }
+
     // MARK: - Mod Management
 
     /// Activate a mod (move from inactive to active).
     func activateMod(_ mod: ModInfo) {
         guard let index = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
+        saveSnapshot()
         inactiveMods.remove(at: index)
         activeMods.append(mod)
         hasUnsavedChanges = true
@@ -180,6 +240,7 @@ final class AppState: ObservableObject {
     func deactivateMod(_ mod: ModInfo) {
         guard !mod.isBasicGameModule else { return }
         guard let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
+        saveSnapshot()
         activeMods.remove(at: index)
         inactiveMods.append(mod)
         inactiveMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -189,6 +250,7 @@ final class AppState: ObservableObject {
 
     /// Activate all inactive mods.
     func activateAll() {
+        saveSnapshot()
         activeMods.append(contentsOf: inactiveMods)
         inactiveMods.removeAll()
         hasUnsavedChanges = true
@@ -197,6 +259,7 @@ final class AppState: ObservableObject {
 
     /// Deactivate all active mods (except GustavDev).
     func deactivateAll() {
+        saveSnapshot()
         let toDeactivate = activeMods.filter { !$0.isBasicGameModule }
         inactiveMods.append(contentsOf: toDeactivate)
         inactiveMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -207,6 +270,7 @@ final class AppState: ObservableObject {
 
     /// Move a mod in the active load order.
     func moveActiveMod(from source: IndexSet, to destination: Int) {
+        saveSnapshot()
         activeMods.move(fromOffsets: source, toOffset: destination)
         hasUnsavedChanges = true
         runValidation()
@@ -216,6 +280,7 @@ final class AppState: ObservableObject {
     func moveModToTop(_ mod: ModInfo) {
         guard !mod.isBasicGameModule,
               let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
+        saveSnapshot()
         activeMods.remove(at: index)
         // Insert after the last base-game module so GustavX stays at position 0
         let insertIndex = activeMods.firstIndex(where: { !$0.isBasicGameModule }) ?? 0
@@ -229,6 +294,7 @@ final class AppState: ObservableObject {
     func moveModToBottom(_ mod: ModInfo) {
         guard !mod.isBasicGameModule,
               let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
+        saveSnapshot()
         activeMods.remove(at: index)
         activeMods.append(mod)
         hasUnsavedChanges = true
@@ -339,6 +405,7 @@ final class AppState: ObservableObject {
     }
 
     func loadProfile(_ profile: ModProfile) async {
+        saveSnapshot()
         // Reconstruct active/inactive lists from the profile
         let allMods = activeMods + inactiveMods
         var newActive: [ModInfo] = []
@@ -784,6 +851,8 @@ final class AppState: ObservableObject {
     @discardableResult
     func activateMissingDependencies(for mod: ModInfo) -> Int {
         let missing = missingDependencies(for: mod)
+        guard !missing.isEmpty else { return 0 }
+        saveSnapshot()
         var activated = 0
         for dep in missing {
             if let index = inactiveMods.firstIndex(where: { $0.uuid == dep.uuid }) {
@@ -808,6 +877,7 @@ final class AppState: ObservableObject {
     /// Returns the total number of dependencies activated.
     @discardableResult
     func activateAllMissingDependencies() -> Int {
+        saveSnapshot()
         var totalActivated = 0
         // Iterate until no more can be activated (handles transitive deps)
         var changed = true
@@ -843,6 +913,7 @@ final class AppState: ObservableObject {
     func activateSelectedMods() {
         let toActivate = inactiveMods.filter { selectedModIDs.contains($0.uuid) }
         guard !toActivate.isEmpty else { return }
+        saveSnapshot()
         for mod in toActivate {
             if let index = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) {
                 inactiveMods.remove(at: index)
@@ -861,6 +932,7 @@ final class AppState: ObservableObject {
             selectedModIDs.contains($0.uuid) && !$0.isBasicGameModule
         }
         guard !toDeactivate.isEmpty else { return }
+        saveSnapshot()
         for mod in toDeactivate {
             if let index = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) {
                 activeMods.remove(at: index)
@@ -880,6 +952,7 @@ final class AppState: ObservableObject {
             .filter { selectedModIDs.contains($1.uuid) && !$1.isBasicGameModule }
             .map { $0 }
         guard !selectedActive.isEmpty else { return }
+        saveSnapshot()
 
         let modsToMove = selectedActive.map(\.element)
         let indicesToRemove = IndexSet(selectedActive.map(\.offset))
@@ -1004,6 +1077,7 @@ final class AppState: ObservableObject {
 
     /// Sort active mods by dependency order using topological sort.
     func autoSortByDependencies() {
+        saveSnapshot()
         let nonBase = activeMods.filter { !$0.isBasicGameModule }
         let base = activeMods.filter { $0.isBasicGameModule }
 
@@ -1021,6 +1095,7 @@ final class AppState: ObservableObject {
     /// Smart sort: groups mods by category tier, then applies dependency sort within each tier.
     /// Mods without a category are placed after Tier 3 (content extensions) and before Tier 4 (visual).
     func smartSort() {
+        saveSnapshot()
         let base = activeMods.filter { $0.isBasicGameModule }
         let nonBase = activeMods.filter { !$0.isBasicGameModule }
 
@@ -1138,6 +1213,7 @@ final class AppState: ObservableObject {
     /// Import mod load order from a BG3 save file (.lsv).
     /// Save files are LSPK archives containing modsettings.lsx.
     func importFromSaveFile(url: URL) async {
+        saveSnapshot()
         do {
             // 1. List files in the archive and find modsettings.lsx
             let entries = try PakReader.listFiles(at: url)
@@ -1214,6 +1290,7 @@ final class AppState: ObservableObject {
 
     /// Import a load order from an external file (BG3MM JSON or standalone modsettings.lsx).
     func importLoadOrder(from url: URL) async {
+        saveSnapshot()
         do {
             let result = try loadOrderImportService.parseFile(at: url)
 

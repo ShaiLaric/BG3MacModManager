@@ -8,6 +8,8 @@ struct ModListView: View {
     @State private var searchText = ""
     @State private var warningsExpanded = false
     @State private var activeDropTargeted = false
+    @State private var selectedCategories: Set<ModCategory> = []
+    @State private var showUncategorized = true
 
     var body: some View {
         HSplitView {
@@ -16,6 +18,12 @@ struct ModListView: View {
                 // Primary action bar
                 actionBar
                 Divider()
+
+                // Category filter chips
+                if isCategoryFilterActive || (appState.activeMods.count + appState.inactiveMods.count) > 20 {
+                    categoryFilterBar
+                    Divider()
+                }
 
                 // Warnings banner
                 if !appState.warnings.isEmpty {
@@ -342,7 +350,12 @@ struct ModListView: View {
                 ForEach(filteredActiveMods) { mod in
                     ModRowView(mod: mod, isActive: true)
                         .tag(mod.uuid)
-                        .moveDisabled(!searchText.isEmpty)
+                        .moveDisabled(!searchText.isEmpty || isCategoryFilterActive)
+                        .onTapGesture(count: 2) {
+                            if !mod.isBasicGameModule {
+                                appState.deactivateMod(mod)
+                            }
+                        }
                         .contextMenu {
                             if !mod.isBasicGameModule {
                                 Button("Deactivate") { appState.deactivateMod(mod) }
@@ -385,8 +398,12 @@ struct ModListView: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
                             }
-                            if mod.pakFilePath != nil {
+                            if let filePath = mod.pakFilePath {
                                 Divider()
+                                Button("Reveal in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([filePath])
+                                }
+                                .help("Show this mod's PAK file in Finder")
                                 Button("Extract to Folder...") {
                                     appState.extractMod(mod)
                                 }
@@ -439,6 +456,9 @@ struct ModListView: View {
                     ModRowView(mod: mod, isActive: false)
                         .tag(mod.uuid)
                         .draggable(mod.uuid)
+                        .onTapGesture(count: 2) {
+                            appState.activateMod(mod)
+                        }
                         .contextMenu {
                             Button("Activate") { appState.activateMod(mod) }
                             if appState.selectedModIDs.count > 1 {
@@ -466,8 +486,12 @@ struct ModListView: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
                             }
-                            if mod.pakFilePath != nil {
+                            if let filePath = mod.pakFilePath {
                                 Divider()
+                                Button("Reveal in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([filePath])
+                                }
+                                .help("Show this mod's PAK file in Finder")
                                 Button("Extract to Folder...") {
                                     appState.extractMod(mod)
                                 }
@@ -561,16 +585,128 @@ struct ModListView: View {
         }
     }
 
+    // MARK: - Category Filter Bar
+
+    /// Whether any category filter is actively narrowing results.
+    private var isCategoryFilterActive: Bool {
+        !selectedCategories.isEmpty || !showUncategorized
+    }
+
+    private var categoryFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(ModCategory.allCases, id: \.self) { category in
+                    Button {
+                        if selectedCategories.contains(category) {
+                            selectedCategories.remove(category)
+                        } else {
+                            selectedCategories.insert(category)
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: category.icon)
+                                .font(.caption2)
+                            Text(category.displayName)
+                                .font(.caption)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            selectedCategories.contains(category)
+                                ? category.color.opacity(0.25)
+                                : Color.clear,
+                            in: Capsule()
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(
+                                    selectedCategories.contains(category)
+                                        ? category.color
+                                        : Color.secondary.opacity(0.3),
+                                    lineWidth: 1
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help(category.tooltip)
+                }
+
+                Button {
+                    showUncategorized.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "questionmark.square")
+                            .font(.caption2)
+                        Text("Uncategorized")
+                            .font(.caption)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        showUncategorized
+                            ? Color.gray.opacity(0.15)
+                            : Color.clear,
+                        in: Capsule()
+                    )
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(
+                                showUncategorized
+                                    ? Color.secondary.opacity(0.5)
+                                    : Color.secondary.opacity(0.3),
+                                lineWidth: 1
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Show or hide mods without a category assignment")
+
+                if isCategoryFilterActive {
+                    Button("Clear") {
+                        selectedCategories.removeAll()
+                        showUncategorized = true
+                    }
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Reset all category filters")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+    }
+
     // MARK: - Filtering
 
     private var filteredActiveMods: [ModInfo] {
-        guard !searchText.isEmpty else { return appState.activeMods }
-        return appState.activeMods.filter { matchesSearch($0) }
+        appState.activeMods.filter { matchesFilters($0) }
     }
 
     private var filteredInactiveMods: [ModInfo] {
-        guard !searchText.isEmpty else { return appState.inactiveMods }
-        return appState.inactiveMods.filter { matchesSearch($0) }
+        appState.inactiveMods.filter { matchesFilters($0) }
+    }
+
+    private func matchesFilters(_ mod: ModInfo) -> Bool {
+        if mod.isBasicGameModule { return true }
+
+        if !searchText.isEmpty && !matchesSearch(mod) {
+            return false
+        }
+
+        if isCategoryFilterActive {
+            if let category = mod.category {
+                if !selectedCategories.isEmpty && !selectedCategories.contains(category) {
+                    return false
+                }
+            } else {
+                if !showUncategorized {
+                    return false
+                }
+            }
+        }
+
+        return true
     }
 
     private func matchesSearch(_ mod: ModInfo) -> Bool {
