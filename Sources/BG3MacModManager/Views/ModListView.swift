@@ -385,8 +385,12 @@ struct ModListView: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
                             }
-                            if mod.pakFilePath != nil {
+                            if let filePath = mod.pakFilePath {
                                 Divider()
+                                Button("Reveal in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([filePath])
+                                }
+                                .help("Show this mod's PAK file in Finder")
                                 Button("Extract to Folder...") {
                                     appState.extractMod(mod)
                                 }
@@ -466,8 +470,12 @@ struct ModListView: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
                             }
-                            if mod.pakFilePath != nil {
+                            if let filePath = mod.pakFilePath {
                                 Divider()
+                                Button("Reveal in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([filePath])
+                                }
+                                .help("Show this mod's PAK file in Finder")
                                 Button("Extract to Folder...") {
                                     appState.extractMod(mod)
                                 }
