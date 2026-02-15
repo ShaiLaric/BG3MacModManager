@@ -196,8 +196,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        // ZStack wrapper: Workaround for macOS 13+ NavigationSplitView bug
-        // where conditional detail views fail to update on selection change (Apple Bug 91311311)
+        // ZStack + .id() wrapper: Workaround for macOS 13+ NavigationSplitView bug
+        // where conditional detail views fail to update on selection change (Apple Bug 91311311).
+        // ZStack provides a stable container type; .id() forces view recreation on selection change.
         ZStack {
             switch selectedSidebarItem {
             case .mods:
@@ -214,6 +215,7 @@ struct ContentView: View {
                 HelpView()
             }
         }
+        .id(selectedSidebarItem)
     }
 
     // MARK: - Toolbar
