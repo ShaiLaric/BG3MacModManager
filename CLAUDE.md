@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.0.5**.
+BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.0.6**.
 
 ## Build Environment
 
@@ -52,7 +52,7 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 | 1.3 | Keyboard Shortcuts | S | **Done** | Cmd+Shift+E (export ZIP), Cmd+Delete (deactivate selected), Cmd+Shift+G (launch game). Updated HelpView. | `BG3MacModManagerApp.swift`, `HelpView.swift` |
 | 1.4 | Category Filter Chips | S | **Done** | Toggleable filter row (Framework/Gameplay/Content/Visual/Late Loader/Uncategorized) above mod lists for users with 100+ mods. | `ModListView.swift` |
 | 1.5 | Mod Description Preview in Row | S | **Done** | Show single-line truncated `modDescription` beneath author/version in `ModRowView` for at-a-glance context. | `ModRowView.swift` |
-| 1.6 | Confirm on Close with Unsaved Changes | S | | Standard macOS "Save changes?" dialog on window close when dirty state is true. Depends on 1.1. | `BG3MacModManagerApp.swift` |
+| 1.6 | Confirm on Close with Unsaved Changes | S | **Done** | Standard macOS "Save changes?" dialog on window close when dirty state is true. Depends on 1.1. | `BG3MacModManagerApp.swift` |
 | 1.7 | Reveal in Finder from Context Menu | S | **Done** | Add "Reveal in Finder" to mod row context menus via `NSWorkspace.shared.activateFileViewerSelecting()`. | `ModListView.swift` |
 | 1.8 | Persistent Mod Count in Status Bar | S | **Done** | "N active / M inactive" in the bottom status bar as an always-visible summary. | `ContentView.swift` |
 
@@ -88,7 +88,7 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 Items marked ~~strikethrough~~ are complete.
 
 1. ~~**1.2 → 1.8 → 2.9** — Instant polish (sidebar badges, status bar count, warning badges)~~
-2. ~~**1.1**~~ **+ 1.6** — ~~Unsaved changes indicator~~ + close confirmation (core UX safety)
+2. ~~**1.1 + 1.6** — Unsaved changes indicator + close confirmation (core UX safety)~~
 3. ~~**1.7 → 2.10** — Reveal in Finder, double-click toggle (standard conventions)~~
 4. ~~**1.4 → 1.5**~~ ~~→ **1.3**~~ — ~~Category filters, description preview~~, ~~keyboard shortcuts~~
 5. ~~**2.1** — Undo/Redo (safety feature, prerequisite for 3.1)~~
