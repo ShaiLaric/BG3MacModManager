@@ -59,12 +59,12 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 | # | Title | Scope | Status | Description | Key Files |
 |---|-------|-------|--------|-------------|-----------|
 | 2.1 | Undo/Redo for Load Order | M | **Done** | Snapshot `(activeMods, inactiveMods)` before each mutation; support Cmd+Z / Cmd+Shift+Z. | `AppState.swift`, `BG3MacModManagerApp.swift` |
-| 2.2 | Profile Load Missing Mods Report | M | | When loading a profile, show a summary dialog of matched vs. missing mods with Nexus URLs. Reuse `ImportSummaryView`. | `AppState.swift`, `ContentView.swift`, `ImportSummaryView.swift` |
+| 2.2 | Profile Load Missing Mods Report | M | **Done** | When loading a profile, show a summary dialog of matched vs. missing mods with Nexus URLs. Reuse `ImportSummaryView`. | `AppState.swift`, `ContentView.swift`, `ImportSummaryView.swift` |
 | 2.3 | Inactive Mods Sorting Options | S–M | | Sort picker for inactive section: by name, author, category, file date, or file size. Currently hardcoded alphabetical. | `ModListView.swift` |
 | 2.4 | PAK Inspector Tool | M | | New tool under "Tools" sidebar to inspect any PAK file's internal listing, meta.lsx, and info.json. Uses existing `PakReader`. | New `PakInspectorView.swift`, `ContentView.swift` |
 | 2.5 | Positional Drag from Inactive to Active | M | | Dragging an inactive mod into the active list should insert at the drop position, not append. | `ModListView.swift`, `AppState.swift` |
 | 2.6 | Advanced Filter Popover | M | | Filter button next to search bar with toggles for: category, SE required, has warnings, metadata source. | `ModListView.swift` |
-| 2.7 | Profile Renaming and Updating | M | | "Rename" and "Update" (overwrite with current load order) actions on profile rows. | `ProfileManagerView.swift`, `ProfileService.swift`, `AppState.swift` |
+| 2.7 | Profile Renaming and Updating | M | **Done** | "Rename" and "Update" (overwrite with current load order) actions on profile rows. | `ProfileManagerView.swift`, `ProfileService.swift`, `AppState.swift` |
 | 2.8 | Auto-save on Launch / Profile Load | S–M | | Settings toggles: "Auto-save before launching game" and "Save on profile load". | `SettingsView.swift`, `AppState.swift` |
 | 2.9 | Warnings Badge Outside Mods Tab | S | **Done** | Critical/warning count badge on "Mods" sidebar item (implemented as part of 1.2). | `ContentView.swift` |
 | 2.10 | Double-Click to Toggle Active/Inactive | S | **Done** | Double-click a mod row to activate/deactivate, matching LaughingLeader's BG3MM convention. | `ModRowView.swift` |
@@ -90,7 +90,7 @@ Items marked ~~strikethrough~~ are complete.
 3. ~~**1.7 → 2.10** — Reveal in Finder, double-click toggle (standard conventions)~~
 4. ~~**1.4 → 1.5**~~ ~~→ **1.3**~~ — ~~Category filters, description preview~~, ~~keyboard shortcuts~~
 5. ~~**2.1** — Undo/Redo (safety feature, prerequisite for 3.1)~~
-6. **2.7 → 2.2** — Profile rename/update, profile load missing mods report
+6. ~~**2.7 → 2.2** — Profile rename/update, profile load missing mods report~~
 7. **2.3 → 2.8 → 2.5** — Inactive sorting, auto-save toggles, positional drag
 8. **2.4 → 2.6** — PAK Inspector, advanced filters
 9. **3.5** — Test suite (pays dividends before larger features)

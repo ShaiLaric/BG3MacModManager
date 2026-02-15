@@ -9,6 +9,11 @@ struct ProfileManagerView: View {
     @State private var newProfileName = ""
     @State private var showingSaveSheet = false
     @State private var showingImportDialog = false
+    @State private var renamingProfile: ModProfile?
+    @State private var renameText = ""
+    @State private var showUpdateConfirmation = false
+    @State private var profileToUpdate: ModProfile?
+    @FocusState private var isRenameFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,8 +73,19 @@ struct ProfileManagerView: View {
             ForEach(appState.profiles) { profile in
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(profile.name)
-                            .font(.headline)
+                        if renamingProfile?.id == profile.id {
+                            TextField("Profile Name", text: $renameText)
+                                .textFieldStyle(.roundedBorder)
+                                .focused($isRenameFieldFocused)
+                                .onSubmit { commitRename(profile) }
+                                .onExitCommand {
+                                    renamingProfile = nil
+                                    renameText = ""
+                                }
+                        } else {
+                            Text(profile.name)
+                                .font(.headline)
+                        }
                         Text("\(profile.activeModUUIDs.count) mods")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -87,6 +103,23 @@ struct ProfileManagerView: View {
                     .help("Apply this profile's mod configuration")
 
                     Button {
+                        profileToUpdate = profile
+                        showUpdateConfirmation = true
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .help("Overwrite this profile with the current load order")
+
+                    Button {
+                        renamingProfile = profile
+                        renameText = profile.name
+                        isRenameFieldFocused = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .help("Rename this profile")
+
+                    Button {
                         exportProfile(profile)
                     } label: {
                         Image(systemName: "square.and.arrow.up")
@@ -102,6 +135,39 @@ struct ProfileManagerView: View {
                 }
                 .padding(.vertical, 4)
             }
+        }
+        .confirmationDialog(
+            "Update Profile?",
+            isPresented: $showUpdateConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Update") {
+                if let profile = profileToUpdate {
+                    Task { await appState.updateProfile(profile) }
+                }
+                profileToUpdate = nil
+            }
+            Button("Cancel", role: .cancel) {
+                profileToUpdate = nil
+            }
+        } message: {
+            if let profile = profileToUpdate {
+                Text("This will overwrite \"\(profile.name)\" with your current \(appState.activeMods.count) active mods and their load order. This cannot be undone.")
+            }
+        }
+    }
+
+    private func commitRename(_ profile: ModProfile) {
+        let newName = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty else {
+            renamingProfile = nil
+            renameText = ""
+            return
+        }
+        Task {
+            await appState.renameProfile(profile, to: newName)
+            renamingProfile = nil
+            renameText = ""
         }
     }
 

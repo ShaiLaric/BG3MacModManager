@@ -89,6 +89,50 @@ final class ProfileService {
         }
     }
 
+    // MARK: - Rename
+
+    /// Rename a profile. Deletes the old file and writes a new one with the updated name.
+    func rename(profile: ModProfile, to newName: String) throws -> ModProfile {
+        let oldURL = profileURL(for: profile)
+        if FileManager.default.fileExists(atPath: oldURL.path) {
+            try FileManager.default.removeItem(at: oldURL)
+        }
+
+        var updated = profile
+        updated.name = newName
+        updated.updatedAt = Date()
+
+        let data = try encoder.encode(updated)
+        let newURL = profileURL(for: updated)
+        try FileLocations.ensureDirectoryExists(FileLocations.profilesDirectory)
+        try data.write(to: newURL, options: .atomic)
+
+        return updated
+    }
+
+    // MARK: - Update
+
+    /// Overwrite a profile's active mod list with the current load order.
+    func update(profile: ModProfile, activeMods: [ModInfo]) throws -> ModProfile {
+        let oldURL = profileURL(for: profile)
+        if FileManager.default.fileExists(atPath: oldURL.path) {
+            try FileManager.default.removeItem(at: oldURL)
+        }
+
+        let entries = activeMods.map { ModProfileEntry(from: $0) }
+        var updated = profile
+        updated.activeModUUIDs = activeMods.map(\.uuid)
+        updated.mods = entries
+        updated.updatedAt = Date()
+
+        let data = try encoder.encode(updated)
+        let newURL = profileURL(for: updated)
+        try FileLocations.ensureDirectoryExists(FileLocations.profilesDirectory)
+        try data.write(to: newURL, options: .atomic)
+
+        return updated
+    }
+
     // MARK: - Export / Import
 
     /// Export a profile to a specific URL (for sharing).
