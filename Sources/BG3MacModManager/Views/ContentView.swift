@@ -170,7 +170,7 @@ struct ContentView: View {
 
     private var sidebar: some View {
         List(SidebarItem.allCases, selection: $selectedSidebarItem) { item in
-            Label(item.rawValue, systemImage: item.icon)
+            SidebarItemRow(item: item)
                 .tag(item)
         }
         .listStyle(.sidebar)
@@ -273,6 +273,8 @@ struct ContentView: View {
     /// registration. Extension filtering happens in handleFileDrop / importMods.
     private static let acceptedDropTypes: [UTType] = [.fileURL]
 
+    // MARK: - File Drop
+
     private func handleFileDrop(_ providers: [NSItemProvider]) {
         let group = DispatchGroup()
         let collectQueue = DispatchQueue(label: "bg3mm.drop-url-collector")
@@ -298,6 +300,34 @@ struct ContentView: View {
             Task {
                 await appState.importMods(from: supported)
             }
+        }
+    }
+}
+
+// MARK: - Sidebar Item Row
+
+/// Isolated view for each sidebar row so badge updates only re-render
+/// the individual row — not the entire List. This prevents macOS
+/// NavigationSplitView's selection binding from breaking on re-render.
+struct SidebarItemRow: View {
+    let item: ContentView.SidebarItem
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        Label(item.rawValue, systemImage: item.icon)
+            .badge(badgeCount)
+    }
+
+    private var badgeCount: Int {
+        switch item {
+        case .mods:
+            return appState.warnings.filter { $0.severity == .critical || $0.severity == .warning }.count
+        case .profiles:
+            return appState.profiles.count
+        case .backups:
+            return appState.backups.count
+        default:
+            return 0
         }
     }
 }
