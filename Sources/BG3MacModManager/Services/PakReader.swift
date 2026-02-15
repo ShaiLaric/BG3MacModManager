@@ -46,13 +46,15 @@ final class PakReader {
         var isSolid: Bool { flags & 0x04 != 0 }
     }
 
-    struct FileEntry {
+    struct FileEntry: Identifiable {
         let name: String
         let offset: UInt64
         let archivePart: UInt8
         let flags: UInt8
         let sizeOnDisk: UInt32
         let uncompressedSize: UInt32
+
+        var id: String { name }
 
         var compressionMethod: CompressionType {
             CompressionType(rawValue: flags & 0x0F) ?? .none
@@ -136,6 +138,14 @@ final class PakReader {
     static func containsScriptExtender(at url: URL) -> Bool {
         guard let entries = try? listFiles(at: url) else { return false }
         return entries.contains { $0.name.contains("ScriptExtender/") }
+    }
+
+    /// Inspect a `.pak` archive and return both its header and file entries.
+    /// Used by the PAK Inspector tool to display archive internals.
+    static func inspectPak(at url: URL) throws -> (header: PakHeader, entries: [FileEntry]) {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { handle.closeFile() }
+        return try readHeaderAndEntries(handle: handle)
     }
 
     // MARK: - Internal Reading

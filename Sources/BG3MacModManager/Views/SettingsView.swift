@@ -8,6 +8,8 @@ struct SettingsView: View {
     @AppStorage("lockModSettingsAfterSave") var lockAfterSave = true
     @AppStorage("autoBackupBeforeSave") var autoBackup = true
     @AppStorage("backupRetentionDays") var backupRetentionDays = 30
+    @AppStorage("autoSaveBeforeLaunch") var autoSaveBeforeLaunch = false
+    @AppStorage("autoSaveOnProfileLoad") var autoSaveOnProfileLoad = false
 
     var body: some View {
         TabView {
@@ -34,6 +36,14 @@ struct SettingsView: View {
 
                 Toggle("Auto-backup before saving", isOn: $autoBackup)
                     .help("Creates a backup of modsettings.lsx before any changes")
+
+                Divider()
+
+                Toggle("Auto-save before launching game", isOn: $autoSaveBeforeLaunch)
+                    .help("Automatically save your load order to modsettings.lsx before launching the game")
+
+                Toggle("Auto-save when loading a profile", isOn: $autoSaveOnProfileLoad)
+                    .help("Automatically save your load order to modsettings.lsx after loading a profile")
             }
 
             Section("Backups") {

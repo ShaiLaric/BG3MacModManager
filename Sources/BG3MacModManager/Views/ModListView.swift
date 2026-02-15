@@ -2,14 +2,60 @@
 
 import SwiftUI
 
+/// Filter option for Script Extender requirement.
+enum SEFilterOption: String, CaseIterable {
+    case all = "All"
+    case seOnly = "SE Required"
+    case nonSEOnly = "No SE"
+}
+
+/// Filter option for validation warnings.
+enum WarningFilterOption: String, CaseIterable {
+    case all = "All"
+    case withWarnings = "Has Warnings"
+    case withoutWarnings = "No Warnings"
+}
+
+/// Sort options for the inactive mod list.
+enum InactiveSortOption: String, CaseIterable {
+    case name = "Name"
+    case author = "Author"
+    case category = "Category"
+    case fileDate = "File Date"
+    case fileSize = "File Size"
+}
+
 /// Main mod management view with active (load order) and inactive mod lists.
 struct ModListView: View {
     @EnvironmentObject var appState: AppState
     @State private var searchText = ""
     @State private var warningsExpanded = false
-    @State private var activeDropTargeted = false
     @State private var selectedCategories: Set<ModCategory> = []
     @State private var showUncategorized = true
+    @AppStorage("inactiveSortOption") private var inactiveSortOptionRaw: String = InactiveSortOption.name.rawValue
+    @AppStorage("inactiveSortAscending") private var inactiveSortAscending: Bool = true
+    @State private var showFilterPopover = false
+    @State private var filterSERequired: SEFilterOption = .all
+    @State private var filterHasWarnings: WarningFilterOption = .all
+    @State private var filterMetadataSources: Set<String> = []
+
+    private var currentSortOption: InactiveSortOption {
+        InactiveSortOption(rawValue: inactiveSortOptionRaw) ?? .name
+    }
+
+    /// Whether any advanced filter is active.
+    private var isAdvancedFilterActive: Bool {
+        filterSERequired != .all || filterHasWarnings != .all || !filterMetadataSources.isEmpty
+    }
+
+    /// Count of active advanced filters (for badge display).
+    private var advancedFilterCount: Int {
+        var count = 0
+        if filterSERequired != .all { count += 1 }
+        if filterHasWarnings != .all { count += 1 }
+        if !filterMetadataSources.isEmpty { count += 1 }
+        return count
+    }
 
     var body: some View {
         HSplitView {
@@ -20,7 +66,7 @@ struct ModListView: View {
                 Divider()
 
                 // Category filter chips
-                if isCategoryFilterActive || (appState.activeMods.count + appState.inactiveMods.count) > 20 {
+                if isCategoryFilterActive || isAdvancedFilterActive || (appState.activeMods.count + appState.inactiveMods.count) > 20 {
                     categoryFilterBar
                     Divider()
                 }
@@ -92,7 +138,7 @@ struct ModListView: View {
             Spacer()
 
             Button {
-                appState.launchGame()
+                Task { await appState.launchGame() }
             } label: {
                 Label("Launch BG3", systemImage: "play.fill")
             }
@@ -350,7 +396,7 @@ struct ModListView: View {
                 ForEach(filteredActiveMods) { mod in
                     ModRowView(mod: mod, isActive: true)
                         .tag(mod.uuid)
-                        .moveDisabled(!searchText.isEmpty || isCategoryFilterActive)
+                        .moveDisabled(!searchText.isEmpty || isCategoryFilterActive || isAdvancedFilterActive)
                         .onTapGesture(count: 2) {
                             if !mod.isBasicGameModule {
                                 appState.deactivateMod(mod)
@@ -413,28 +459,11 @@ struct ModListView: View {
                 .onMove { source, destination in
                     appState.moveActiveMod(from: source, to: destination)
                 }
+                .onInsert(of: [.utf8PlainText]) { index, providers in
+                    handleActiveListInsert(at: index, providers: providers)
+                }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
-            .dropDestination(for: String.self) { uuids, _ in
-                var activated = 0
-                for uuid in uuids {
-                    if let mod = appState.inactiveMods.first(where: { $0.uuid == uuid }) {
-                        appState.activateMod(mod)
-                        activated += 1
-                    }
-                }
-                return activated > 0
-            } isTargeted: { targeted in
-                activeDropTargeted = targeted
-            }
-            .overlay {
-                if activeDropTargeted {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.green, lineWidth: 2)
-                        .padding(2)
-                        .allowsHitTesting(false)
-                }
-            }
         }
     }
 
@@ -447,6 +476,25 @@ struct ModListView: View {
                     .font(.headline)
                     .foregroundStyle(.secondary)
                 Spacer()
+
+                Button {
+                    inactiveSortAscending.toggle()
+                } label: {
+                    Image(systemName: inactiveSortAscending ? "arrow.up" : "arrow.down")
+                }
+                .buttonStyle(.plain)
+                .controlSize(.small)
+                .help(inactiveSortAscending ? "Currently ascending — click to sort descending" : "Currently descending — click to sort ascending")
+
+                Picker("Sort by", selection: $inactiveSortOptionRaw) {
+                    ForEach(InactiveSortOption.allCases, id: \.rawValue) { option in
+                        Text(option.rawValue).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 120)
+                .controlSize(.small)
+                .help("Choose how to sort the inactive mod list")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -661,19 +709,131 @@ struct ModListView: View {
                 .buttonStyle(.plain)
                 .help("Show or hide mods without a category assignment")
 
-                if isCategoryFilterActive {
+                if isCategoryFilterActive || isAdvancedFilterActive {
                     Button("Clear") {
                         selectedCategories.removeAll()
                         showUncategorized = true
+                        filterSERequired = .all
+                        filterHasWarnings = .all
+                        filterMetadataSources.removeAll()
                     }
                     .font(.caption)
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .help("Reset all category filters")
+                    .help("Reset all filters")
+                }
+
+                Divider()
+                    .frame(height: 16)
+
+                Button {
+                    showFilterPopover.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isAdvancedFilterActive
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle")
+                            .font(.caption)
+                        if advancedFilterCount > 0 {
+                            Text("\(advancedFilterCount)")
+                                .font(.caption2.bold())
+                                .foregroundStyle(.white)
+                                .frame(width: 16, height: 16)
+                                .background(Color.accentColor, in: Circle())
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Advanced filters: filter by Script Extender requirement, warnings, or metadata source")
+                .popover(isPresented: $showFilterPopover) {
+                    advancedFilterPopover
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
+        }
+    }
+
+    // MARK: - Advanced Filter Popover
+
+    private var advancedFilterPopover: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Advanced Filters")
+                    .font(.headline)
+                Spacer()
+                if isAdvancedFilterActive {
+                    Button("Clear All") {
+                        filterSERequired = .all
+                        filterHasWarnings = .all
+                        filterMetadataSources.removeAll()
+                    }
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Reset all advanced filters")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Script Extender")
+                    .font(.subheadline.bold())
+                Picker("SE Filter", selection: $filterSERequired) {
+                    ForEach(SEFilterOption.allCases, id: \.self) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("Filter mods by whether they require Script Extender")
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Warnings")
+                    .font(.subheadline.bold())
+                Picker("Warning Filter", selection: $filterHasWarnings) {
+                    ForEach(WarningFilterOption.allCases, id: \.self) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("Filter mods by whether they have validation warnings")
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Metadata Source")
+                    .font(.subheadline.bold())
+                ForEach(allMetadataSources, id: \.self) { source in
+                    Toggle(isOn: Binding(
+                        get: { filterMetadataSources.contains(source) },
+                        set: { isOn in
+                            if isOn { filterMetadataSources.insert(source) }
+                            else { filterMetadataSources.remove(source) }
+                        }
+                    )) {
+                        Text(metadataSourceDisplayName(source))
+                            .font(.caption)
+                    }
+                    .toggleStyle(.checkbox)
+                    .help("Show only mods discovered via \(metadataSourceDisplayName(source).lowercased())")
+                }
+            }
+        }
+        .padding()
+        .frame(width: 260)
+    }
+
+    /// All metadata source raw values for the filter popover.
+    private var allMetadataSources: [String] {
+        ["metaLsx", "infoJson", "filename", "modSettings"]
+    }
+
+    private func metadataSourceDisplayName(_ source: String) -> String {
+        switch source {
+        case "metaLsx": return "meta.lsx"
+        case "infoJson": return "info.json"
+        case "filename": return "Filename"
+        case "modSettings": return "modsettings.lsx"
+        default: return source
         }
     }
 
@@ -684,7 +844,65 @@ struct ModListView: View {
     }
 
     private var filteredInactiveMods: [ModInfo] {
-        appState.inactiveMods.filter { matchesFilters($0) }
+        let filtered = appState.inactiveMods.filter { matchesFilters($0) }
+        return sortInactiveMods(filtered)
+    }
+
+    private func sortInactiveMods(_ mods: [ModInfo]) -> [ModInfo] {
+        let ascending = inactiveSortAscending
+        return mods.sorted { a, b in
+            let result: ComparisonResult
+            switch currentSortOption {
+            case .name:
+                result = a.name.localizedCaseInsensitiveCompare(b.name)
+            case .author:
+                let cmp = a.author.localizedCaseInsensitiveCompare(b.author)
+                result = cmp == .orderedSame ? a.name.localizedCaseInsensitiveCompare(b.name) : cmp
+            case .category:
+                let catA = a.category?.rawValue ?? 99
+                let catB = b.category?.rawValue ?? 99
+                if catA != catB {
+                    result = catA < catB ? .orderedAscending : .orderedDescending
+                } else {
+                    result = a.name.localizedCaseInsensitiveCompare(b.name)
+                }
+            case .fileDate:
+                let dateA = fileDate(for: a)
+                let dateB = fileDate(for: b)
+                if dateA == dateB {
+                    result = a.name.localizedCaseInsensitiveCompare(b.name)
+                } else {
+                    result = dateA < dateB ? .orderedAscending : .orderedDescending
+                }
+            case .fileSize:
+                let sizeA = fileSize(for: a)
+                let sizeB = fileSize(for: b)
+                if sizeA == sizeB {
+                    result = a.name.localizedCaseInsensitiveCompare(b.name)
+                } else {
+                    result = sizeA < sizeB ? .orderedAscending : .orderedDescending
+                }
+            }
+            return ascending ? (result == .orderedAscending) : (result == .orderedDescending)
+        }
+    }
+
+    private func fileDate(for mod: ModInfo) -> Date {
+        guard let path = mod.pakFilePath,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
+              let date = attrs[.modificationDate] as? Date else {
+            return .distantPast
+        }
+        return date
+    }
+
+    private func fileSize(for mod: ModInfo) -> UInt64 {
+        guard let path = mod.pakFilePath,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
+              let size = attrs[.size] as? UInt64 else {
+            return 0
+        }
+        return size
     }
 
     private func matchesFilters(_ mod: ModInfo) -> Bool {
@@ -706,6 +924,27 @@ struct ModListView: View {
             }
         }
 
+        // Advanced filters
+        switch filterSERequired {
+        case .all: break
+        case .seOnly:
+            if !mod.requiresScriptExtender { return false }
+        case .nonSEOnly:
+            if mod.requiresScriptExtender { return false }
+        }
+
+        switch filterHasWarnings {
+        case .all: break
+        case .withWarnings:
+            if appState.warnings(for: mod).isEmpty { return false }
+        case .withoutWarnings:
+            if !appState.warnings(for: mod).isEmpty { return false }
+        }
+
+        if !filterMetadataSources.isEmpty {
+            if !filterMetadataSources.contains(mod.metadataSource.rawValue) { return false }
+        }
+
         return true
     }
 
@@ -724,6 +963,27 @@ struct ModListView: View {
         case .critical: return .red
         case .warning:  return .yellow
         case .info:     return .blue
+        }
+    }
+
+    // MARK: - Drag Insert
+
+    /// Handle items dropped into the active list at a specific position via .onInsert.
+    private func handleActiveListInsert(at index: Int, providers: [NSItemProvider]) {
+        for provider in providers {
+            provider.loadObject(ofClass: NSString.self) { object, _ in
+                guard let uuid = object as? String else { return }
+                DispatchQueue.main.async {
+                    if let mod = appState.inactiveMods.first(where: { $0.uuid == uuid }) {
+                        // When filters are active, positional insert is ambiguous — fall back to append
+                        if isCategoryFilterActive || isAdvancedFilterActive || !searchText.isEmpty {
+                            appState.activateMod(mod)
+                        } else {
+                            appState.activateModAtPosition(mod, at: index)
+                        }
+                    }
+                }
+            }
         }
     }
 }

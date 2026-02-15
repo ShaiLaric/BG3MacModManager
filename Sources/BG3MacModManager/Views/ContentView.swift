@@ -191,7 +191,7 @@ struct ContentView: View {
         case .scriptExtender:
             SEStatusView()
         case .tools:
-            VersionGeneratorView()
+            ToolsContainerView()
         case .help:
             HelpView()
         }
@@ -328,6 +328,42 @@ struct SidebarItemRow: View {
             return appState.backups.count
         default:
             return 0
+        }
+    }
+}
+
+// MARK: - Tools Container
+
+/// Container view for the Tools sidebar item with a segmented picker to switch
+/// between the Version Generator and PAK Inspector tools.
+struct ToolsContainerView: View {
+    enum Tool: String, CaseIterable {
+        case versionGenerator = "Version Generator"
+        case pakInspector = "PAK Inspector"
+    }
+
+    @State private var selectedTool: Tool = .versionGenerator
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Tool", selection: $selectedTool) {
+                ForEach(Tool.allCases, id: \.self) { tool in
+                    Text(tool.rawValue).tag(tool)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .help("Switch between available tools")
+
+            Divider()
+
+            switch selectedTool {
+            case .versionGenerator:
+                VersionGeneratorView()
+            case .pakInspector:
+                PakInspectorView()
+            }
         }
     }
 }

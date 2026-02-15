@@ -236,6 +236,16 @@ final class AppState: ObservableObject {
         runValidation()
     }
 
+    /// Activate a mod at a specific position in the active load order.
+    func activateModAtPosition(_ mod: ModInfo, at index: Int) {
+        guard let inactiveIndex = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
+        saveSnapshot()
+        inactiveMods.remove(at: inactiveIndex)
+        activeMods.insert(mod, at: min(index, activeMods.count))
+        hasUnsavedChanges = true
+        runValidation()
+    }
+
     /// Deactivate a mod (move from active to inactive).
     func deactivateMod(_ mod: ModInfo) {
         guard !mod.isBasicGameModule else { return }
@@ -466,6 +476,10 @@ final class AppState: ObservableObject {
             showImportSummary = true
             statusMessage = "Loaded profile '\(profile.name)' (\(matchedCount) matched, \(missingMods.count) missing)"
         }
+
+        if UserDefaults.standard.bool(forKey: "autoSaveOnProfileLoad") {
+            await performSave()
+        }
     }
 
     func deleteProfile(_ profile: ModProfile) async {
@@ -525,7 +539,10 @@ final class AppState: ObservableObject {
 
     // MARK: - Game Launch
 
-    func launchGame() {
+    func launchGame() async {
+        if UserDefaults.standard.bool(forKey: "autoSaveBeforeLaunch") && hasUnsavedChanges {
+            await performSave()
+        }
         do {
             try launchService.launchGame()
             statusMessage = "Launching Baldur's Gate 3..."

@@ -88,7 +88,7 @@ struct BG3MacModManagerApp: App {
                 .disabled(appState.selectedModIDs.isEmpty)
 
                 Button("Launch Baldur's Gate 3") {
-                    appState.launchGame()
+                    Task { await appState.launchGame() }
                 }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(!appState.isGameInstalled)
