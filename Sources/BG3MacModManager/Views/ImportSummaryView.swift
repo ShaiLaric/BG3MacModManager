@@ -3,19 +3,23 @@
 import SwiftUI
 import AppKit
 
-/// Summary dialog shown after importing a load order with missing mods.
+/// Summary dialog shown after importing a load order or loading a profile with missing mods.
 struct ImportSummaryView: View {
     @EnvironmentObject var appState: AppState
 
+    private var isProfileLoad: Bool {
+        appState.importSummaryResult?.format.hasPrefix("Profile:") == true
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Import Summary")
+            Text(isProfileLoad ? "Profile Load Summary" : "Import Summary")
                 .font(.title2.bold())
 
             if let summary = appState.importSummaryResult {
                 // Stats row
                 HStack(spacing: 16) {
-                    statBox(label: "In File", value: "\(summary.totalInFile)")
+                    statBox(label: isProfileLoad ? "In Profile" : "In File", value: "\(summary.totalInFile)")
                     statBox(label: "Matched", value: "\(summary.matchedCount)")
                     statBox(label: "Missing", value: "\(summary.missingMods.count)")
                 }
@@ -24,7 +28,9 @@ struct ImportSummaryView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
-                        Text("\(summary.matchedCount) mod(s) activated in the imported order.")
+                        Text(isProfileLoad
+                             ? "\(summary.matchedCount) mod(s) matched from your installed mods."
+                             : "\(summary.matchedCount) mod(s) activated in the imported order.")
                             .font(.body)
                     }
                 }

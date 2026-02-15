@@ -455,10 +455,10 @@ struct ModListView: View {
                 ForEach(filteredInactiveMods) { mod in
                     ModRowView(mod: mod, isActive: false)
                         .tag(mod.uuid)
-                        .draggable(mod.uuid)
                         .onTapGesture(count: 2) {
                             appState.activateMod(mod)
                         }
+                        .draggable(mod.uuid)
                         .contextMenu {
                             Button("Activate") { appState.activateMod(mod) }
                             if appState.selectedModIDs.count > 1 {

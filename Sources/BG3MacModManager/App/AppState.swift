@@ -410,11 +410,14 @@ final class AppState: ObservableObject {
         let allMods = activeMods + inactiveMods
         var newActive: [ModInfo] = []
         var remainingUUIDs = Set(allMods.map(\.uuid))
+        var missingMods: [MissingModInfo] = []
+        var matchedCount = 0
 
         for uuid in profile.activeModUUIDs {
             if let mod = allMods.first(where: { $0.uuid == uuid }) {
                 newActive.append(mod)
                 remainingUUIDs.remove(uuid)
+                matchedCount += 1
             } else if let entry = profile.mods.first(where: { $0.uuid == uuid }) {
                 // Create a placeholder mod from the profile entry
                 let mod = ModInfo(
@@ -434,6 +437,12 @@ final class AppState: ObservableObject {
                     metadataSource: .modSettings
                 )
                 newActive.append(mod)
+                missingMods.append(MissingModInfo(
+                    id: entry.uuid,
+                    name: entry.name,
+                    uuid: entry.uuid,
+                    nexusURL: nexusURLService.url(for: entry.uuid)
+                ))
             }
         }
 
@@ -443,8 +452,20 @@ final class AppState: ObservableObject {
         activeMods = newActive
         inactiveMods = newInactive
         hasUnsavedChanges = true
-        statusMessage = "Loaded profile '\(profile.name)'"
         runValidation()
+
+        if missingMods.isEmpty {
+            statusMessage = "Loaded profile '\(profile.name)'"
+        } else {
+            importSummaryResult = LoadOrderImportSummary(
+                format: "Profile: \(profile.name)",
+                totalInFile: profile.activeModUUIDs.count,
+                matchedCount: matchedCount,
+                missingMods: missingMods
+            )
+            showImportSummary = true
+            statusMessage = "Loaded profile '\(profile.name)' (\(matchedCount) matched, \(missingMods.count) missing)"
+        }
     }
 
     func deleteProfile(_ profile: ModProfile) async {
@@ -452,6 +473,30 @@ final class AppState: ObservableObject {
             try profileService.delete(profile: profile)
             profiles.removeAll { $0.id == profile.id }
             statusMessage = "Deleted profile '\(profile.name)'"
+        } catch {
+            showError(error)
+        }
+    }
+
+    func renameProfile(_ profile: ModProfile, to newName: String) async {
+        do {
+            let updated = try profileService.rename(profile: profile, to: newName)
+            if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
+                profiles[index] = updated
+            }
+            statusMessage = "Renamed profile to '\(newName)'"
+        } catch {
+            showError(error)
+        }
+    }
+
+    func updateProfile(_ profile: ModProfile) async {
+        do {
+            let updated = try profileService.update(profile: profile, activeMods: activeMods)
+            if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
+                profiles[index] = updated
+            }
+            statusMessage = "Updated profile '\(profile.name)' with current load order"
         } catch {
             showError(error)
         }
