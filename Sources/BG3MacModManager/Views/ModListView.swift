@@ -343,6 +343,11 @@ struct ModListView: View {
                     ModRowView(mod: mod, isActive: true)
                         .tag(mod.uuid)
                         .moveDisabled(!searchText.isEmpty)
+                        .onTapGesture(count: 2) {
+                            if !mod.isBasicGameModule {
+                                appState.deactivateMod(mod)
+                            }
+                        }
                         .contextMenu {
                             if !mod.isBasicGameModule {
                                 Button("Deactivate") { appState.deactivateMod(mod) }
@@ -443,6 +448,9 @@ struct ModListView: View {
                     ModRowView(mod: mod, isActive: false)
                         .tag(mod.uuid)
                         .draggable(mod.uuid)
+                        .onTapGesture(count: 2) {
+                            appState.activateMod(mod)
+                        }
                         .contextMenu {
                             Button("Activate") { appState.activateMod(mod) }
                             if appState.selectedModIDs.count > 1 {
