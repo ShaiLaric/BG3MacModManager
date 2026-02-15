@@ -29,7 +29,6 @@ NOTARIZE=false
 KEYCHAIN_PROFILE=""
 APPLE_ID=""
 TEAM_ID=""
-USE_HDIUTIL=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -53,13 +52,9 @@ while [[ $# -gt 0 ]]; do
             TEAM_ID="$2"
             shift 2
             ;;
-        --use-hdiutil)
-            USE_HDIUTIL=true
-            shift
-            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--sign IDENTITY] [--notarize --keychain-profile PROFILE] [--use-hdiutil]"
+            echo "Usage: $0 [--sign IDENTITY] [--notarize --keychain-profile PROFILE]"
             exit 1
             ;;
     esac
@@ -136,13 +131,6 @@ else
     codesign --force --sign - "$APP_BUNDLE"
 fi
 
-# Remove extended attributes and locked flags before DMG creation
-# These can prevent hdiutil from accessing the app bundle
-echo "Removing extended attributes from app bundle..."
-xattr -cr "$APP_BUNDLE" 2>/dev/null || true
-# Remove any immutable flags (uchg) that cause "Operation not permitted"
-chflags -R nouchg "$APP_BUNDLE" 2>/dev/null || true
-
 # Show build result
 APP_SIZE=$(du -sh "$APP_BUNDLE" | cut -f1)
 echo ""
@@ -154,18 +142,7 @@ echo ""
 # --- Create DMG with /Applications shortcut ---
 echo "Creating DMG with Applications shortcut..."
 
-# Clean up any leftover mounted volumes from previous runs
-VOLUME_PATH="/Volumes/${APP_NAME}"
-if [ -d "$VOLUME_PATH" ]; then
-    echo "Unmounting leftover volume: $VOLUME_PATH"
-    hdiutil detach "$VOLUME_PATH" -force 2>/dev/null || true
-    # Give macOS a moment to fully release the volume
-    sleep 1
-fi
-
-CREATE_DMG_SUCCESS=false
-
-if command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
+if command -v create-dmg &> /dev/null; then
     # Use create-dmg for a styled DMG with drag-and-drop layout
     echo "Using create-dmg for styled DMG..."
 
@@ -186,117 +163,29 @@ if command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
     fi
 
     # create-dmg returns exit code 2 if it can't set a background image (non-fatal)
-    # Retry once on permission errors (exit code 1) with a delay
-    MAX_RETRIES=2
-    RETRY_COUNT=0
-
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ] && ! $CREATE_DMG_SUCCESS; do
-        if [ $RETRY_COUNT -gt 0 ]; then
-            echo "Retrying create-dmg (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)..."
-            sleep 2
+    create-dmg "${CREATE_DMG_ARGS[@]}" "$DMG_PATH" "$APP_BUNDLE" || {
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -ne 2 ]; then
+            echo "Error: create-dmg failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
         fi
+    }
+else
+    # Fallback: create DMG with /Applications symlink using hdiutil
+    echo "Note: 'create-dmg' not found. Creating basic DMG with /Applications shortcut."
+    echo "      For a styled DMG, install: brew install create-dmg"
+    echo ""
 
-        if create-dmg "${CREATE_DMG_ARGS[@]}" "$DMG_PATH" "$APP_BUNDLE"; then
-            CREATE_DMG_SUCCESS=true
-        else
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 2 ]; then
-                # Exit code 2 is non-fatal (background image warning)
-                CREATE_DMG_SUCCESS=true
-            fi
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-        fi
-    done
-
-    if ! $CREATE_DMG_SUCCESS; then
-        echo "Warning: create-dmg failed (likely a macOS permissions issue)."
-        echo "Falling back to hdiutil method..."
-        # Clean up any partial DMG or leftover mounts from create-dmg
-        rm -f "$DMG_PATH"
-        if [ -d "$VOLUME_PATH" ]; then
-            hdiutil detach "$VOLUME_PATH" -force 2>/dev/null || true
-            sleep 1
-        fi
-    fi
-fi
-
-if ! $CREATE_DMG_SUCCESS; then
-    # Fallback: create DMG from a staging directory
-    if ! command -v create-dmg &> /dev/null && ! $USE_HDIUTIL; then
-        echo "Note: 'create-dmg' not found. For a styled DMG, install: brew install create-dmg"
-    fi
-
-    # Aggressively clean up any stale volumes/disk attachments from create-dmg
-    hdiutil detach "$VOLUME_PATH" -force 2>/dev/null || true
-    hdiutil info 2>/dev/null | grep -B 20 "${APP_NAME}" | grep "^/dev/" | awk '{print $1}' | while read -r dev; do
-        hdiutil detach "$dev" -force 2>/dev/null || true
-    done
-    sleep 1
-
-    # Assemble staging directory with app bundle and Applications symlink
     STAGING_DIR="$BUILD_DIR/dmg-staging"
     rm -rf "$STAGING_DIR"
     mkdir -p "$STAGING_DIR"
 
-    echo "Preparing staging directory..."
-    cp -R "$APP_BUNDLE" "$STAGING_DIR/" || {
-        echo "Error: Failed to copy app bundle to staging directory"
-        rm -rf "$STAGING_DIR"
-        exit 1
-    }
+    cp -R "$APP_BUNDLE" "$STAGING_DIR/"
     ln -s /Applications "$STAGING_DIR/Applications"
 
-    # Strip extended attributes from the staging copy — quarantine and
-    # provenance attrs can cause hdiutil "Operation not permitted" errors
-    xattr -cr "$STAGING_DIR" 2>/dev/null || true
+    hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH"
 
-    # Attempt 1: hdiutil create -srcfolder (internally mounts a temp volume)
-    echo "Creating disk image (srcfolder method)..."
-    rm -f "$DMG_PATH"
-    if hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGING_DIR" \
-        -format UDZO "$DMG_PATH" 2>&1; then
-        CREATE_DMG_SUCCESS=true
-    else
-        echo "hdiutil create -srcfolder failed, trying makehybrid..."
-    fi
-
-    # Attempt 2: hdiutil makehybrid — writes HFS+ image directly from folder
-    # contents WITHOUT mounting any temporary volume, bypassing mount-related
-    # permission restrictions entirely
-    if ! $CREATE_DMG_SUCCESS; then
-        rm -f "$DMG_PATH"
-        if hdiutil makehybrid -o "$DMG_PATH" \
-            -hfs \
-            -default-volume-name "${APP_NAME}" \
-            "$STAGING_DIR" 2>&1; then
-            CREATE_DMG_SUCCESS=true
-        else
-            echo "hdiutil makehybrid also failed."
-        fi
-    fi
-
-    # Cleanup staging
     rm -rf "$STAGING_DIR"
-fi
-
-# --- ZIP fallback when all DMG methods fail ---
-if ! $CREATE_DMG_SUCCESS; then
-    ZIP_PATH="$BUILD_DIR/${APP_NAME}.zip"
-    echo ""
-    echo "DMG creation failed. Creating ZIP archive instead..."
-    rm -f "$ZIP_PATH"
-    # Use ditto to create a macOS-friendly ZIP that preserves code signatures
-    if ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ZIP_PATH"; then
-        ZIP_SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
-        echo ""
-        echo "=== Build Complete (ZIP) ==="
-        echo "ZIP: $ZIP_PATH ($ZIP_SIZE)"
-    else
-        echo "Error: ZIP creation also failed"
-        exit 1
-    fi
-    # Skip DMG-specific steps (signing, notarization) — they don't apply to ZIP
-    exit 0
 fi
 
 # Sign the DMG itself if using Developer ID

@@ -65,14 +65,6 @@ struct ModRowView: View {
                             .help("This mod's PAK contains no meta.lsx and no info.json was found. UUID, version, and dependencies are unknown.")
                     }
                 }
-
-                if !mod.modDescription.isEmpty && !mod.isBasicGameModule {
-                    Text(mod.modDescription)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
             }
 
             Spacer()

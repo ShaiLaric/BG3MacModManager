@@ -172,20 +172,11 @@ struct HelpView: View {
 
             helpHeading("Activating & Deactivating")
             helpBulletList([
-                "Double-click a mod row to toggle it between active and inactive",
                 "Right-click a mod and choose Activate or Deactivate",
-                "Click the +/- button on the right side of a mod row",
                 "Drag an inactive mod onto the Active Mods list to activate it",
                 "Use the overflow menu (\"...\") to Activate All or Deactivate All",
                 "Multi-select mods (Cmd+Click or Shift+Click) and use the action bar for bulk operations",
             ])
-
-            helpHeading("Mod Row Information")
-            helpText("""
-            Each mod row shows the mod name, category badge, author, version, and a single-line \
-            description preview (if the mod has a description). Active mods also show their load \
-            order position number on the left.
-            """)
 
             helpHeading("Detail Panel")
             helpText("""
@@ -214,7 +205,6 @@ struct HelpView: View {
                 "Open on Nexus Mods — Opens the mod's Nexus Mods page if a URL has been set, or searches Nexus Mods for the mod by name.",
                 "Copy Mod Info — Copies a formatted summary of the mod (name, author, version, UUID, category, and Nexus URL) to the clipboard. Useful for sharing your mod list or reporting issues.",
                 "Copy UUID — Copies just the mod's UUID to the clipboard.",
-                "Reveal in Finder — Shows the mod's PAK file in Finder.",
                 "Extract to Folder... — Extracts the mod's PAK archive contents to a folder of your choice.",
                 "Delete from Disk... — Permanently removes an inactive mod's PAK file (see Deleting Mods section).",
             ])
@@ -230,18 +220,6 @@ struct HelpView: View {
             helpText("""
             Use the search field at the top to filter mods by name, author, folder, or tags. \
             The filter applies to both active and inactive mod lists simultaneously.
-            """)
-
-            helpHeading("Category Filter Chips")
-            helpText("""
-            A row of category filter chips appears above the mod lists (shown automatically when \
-            you have more than 20 mods). Click a category chip to toggle filtering by that category. \
-            Multiple categories can be selected simultaneously. The \"Uncategorized\" chip controls \
-            whether mods without a category assignment are shown. Click \"Clear\" to reset all filters.
-            """)
-            helpText("""
-            Note: Drag-and-drop reordering is disabled while category filters are active, since \
-            the filtered view does not show all mods.
             """)
         }
     }
@@ -296,13 +274,6 @@ struct HelpView: View {
             From the overflow menu, choose \"Activate Missing Dependencies\" to find all dependencies \
             required by your active mods that are sitting in the inactive list, and activate them \
             automatically. Dependencies are inserted before the mods that need them.
-            """)
-
-            helpHeading("Undo & Redo")
-            helpText("""
-            Every load order change (activating, deactivating, moving, sorting, importing, etc.) \
-            can be undone with Cmd+Z and redone with Cmd+Shift+Z. The undo history stores up to \
-            50 snapshots. Undo/Redo is also available from the Edit menu.
             """)
         }
     }
@@ -608,9 +579,8 @@ struct HelpView: View {
 
             helpHeading("Reveal in Finder")
             helpText("""
-            Right-click any mod and choose \"Reveal in Finder\" from the context menu to show \
-            the mod's .pak file in Finder. This is also available in the Detail Panel's File Info \
-            section via the arrow button next to the file path.
+            In the Detail Panel's File Info section, click the arrow button next to the file \
+            path to reveal the mod's .pak file in Finder.
             """)
 
             helpHeading("Copy Mod Info")
@@ -668,8 +638,6 @@ struct HelpView: View {
             helpTitle("Keyboard Shortcuts")
 
             helpShortcutTable([
-                ("Cmd+Z", "Undo Last Change"),
-                ("Cmd+Shift+Z", "Redo Last Change"),
                 ("Cmd+S", "Save Load Order"),
                 ("Cmd+I", "Import Mod"),
                 ("Cmd+Shift+I", "Import from Save File"),
@@ -682,7 +650,6 @@ struct HelpView: View {
                 ("Cmd+?", "Open Help"),
                 ("Cmd+Click", "Add/remove from multi-selection"),
                 ("Shift+Click", "Extend selection range"),
-                ("Double-Click", "Toggle mod active/inactive"),
             ])
         }
     }
