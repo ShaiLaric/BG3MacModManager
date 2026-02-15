@@ -138,7 +138,7 @@ struct HelpView: View {
                 "Profiles — Save and load named mod configurations",
                 "Backups — View and restore modsettings.lsx backups",
                 "Script Extender — Check bg3se-macos installation status",
-                "Tools — Version number converter utility",
+                "Tools — Version number converter and PAK file inspector",
                 "Help — This documentation",
             ])
         }
@@ -166,8 +166,24 @@ struct HelpView: View {
             helpHeading("Inactive Mods")
             helpText("""
             Inactive mods are .pak files discovered in your Mods folder that are not in your \
-            current load order. They are sorted alphabetically. Inactive mods are not written \
-            to modsettings.lsx and will not load in-game.
+            current load order. They are not written to modsettings.lsx and will not load in-game.
+            """)
+
+            helpHeading("Inactive Mods Sorting")
+            helpText("""
+            The inactive mod list can be sorted using the sort picker in the section header. \
+            Available sort options:
+            """)
+            helpBulletList([
+                "Name — Alphabetical by mod name (default)",
+                "Author — Alphabetical by author name",
+                "Category — By load order tier (Framework, Gameplay, Content, Visual, Late Loader)",
+                "File Date — By PAK file modification date",
+                "File Size — By PAK file size on disk",
+            ])
+            helpText("""
+            Click the arrow button next to the sort picker to toggle between ascending and \
+            descending order. Your sort preference is remembered across sessions.
             """)
 
             helpHeading("Activating & Deactivating")
@@ -175,7 +191,7 @@ struct HelpView: View {
                 "Double-click a mod row to toggle it between active and inactive",
                 "Right-click a mod and choose Activate or Deactivate",
                 "Click the +/- button on the right side of a mod row",
-                "Drag an inactive mod onto the Active Mods list to activate it",
+                "Drag an inactive mod onto the Active Mods list to activate it at a specific position in the load order",
                 "Use the overflow menu (\"...\") to Activate All or Deactivate All",
                 "Multi-select mods (Cmd+Click or Shift+Click) and use the action bar for bulk operations",
             ])
@@ -240,8 +256,24 @@ struct HelpView: View {
             whether mods without a category assignment are shown. Click "Clear" to reset all filters.
             """)
             helpText("""
-            Note: Drag-and-drop reordering is disabled while category filters are active, since \
-            the filtered view does not show all mods.
+            Note: Drag-and-drop reordering is disabled while category or advanced filters are active, \
+            since the filtered view does not show all mods.
+            """)
+
+            helpHeading("Advanced Filters")
+            helpText("""
+            Click the filter icon at the end of the category filter bar to open the advanced filter \
+            popover. Advanced filters let you narrow the mod list by:
+            """)
+            helpBulletList([
+                "Script Extender — Show only mods that require SE, only mods that don't, or all",
+                "Warnings — Show only mods with validation warnings, only mods without warnings, or all",
+                "Metadata Source — Show only mods discovered via a specific method (meta.lsx, info.json, filename, or modsettings.lsx)",
+            ])
+            helpText("""
+            Active advanced filters are indicated by a filled filter icon and a badge showing the \
+            count of active filters. Use \"Clear All\" in the popover or the \"Clear\" button in \
+            the filter bar to reset all filters.
             """)
         }
     }
@@ -589,6 +621,11 @@ struct HelpView: View {
         VStack(alignment: .leading, spacing: 16) {
             helpTitle("Tools")
 
+            helpText("""
+            The Tools section contains utility tools accessible via a segmented picker at the top. \
+            Switch between tools by clicking the tabs.
+            """)
+
             helpHeading("Version Generator")
             helpText("""
             BG3 uses a special Int64 format for version numbers (e.g., 36028797018963968 = 1.0.0.0). \
@@ -597,6 +634,24 @@ struct HelpView: View {
             """)
             helpText("""
             This is useful for mod authors who need to set version numbers in their mod metadata.
+            """)
+
+            helpHeading("PAK Inspector")
+            helpText("""
+            The PAK Inspector lets you open any .pak (LSPK v18) archive and examine its contents \
+            without extracting the entire file. Use it to:
+            """)
+            helpBulletList([
+                "View archive header information (version, flags, priority, solid compression status)",
+                "Browse the complete file listing with sizes and compression details",
+                "Quickly view meta.lsx and info.json metadata files",
+                "Extract and view individual files from within the archive",
+                "Search/filter the file list by name",
+                "Copy file paths from within the archive",
+            ])
+            helpText("""
+            Right-click any file in the list to view its contents or copy its path. This is useful \
+            for debugging mod issues, verifying mod contents, or inspecting unfamiliar PAK files.
             """)
 
             helpHeading("Extract to Folder")
@@ -642,6 +697,8 @@ struct HelpView: View {
             helpBulletList([
                 "Lock modsettings.lsx after saving — When enabled, the file is made immutable to prevent the game from overwriting it. Enabled by default.",
                 "Auto-backup before saving — Creates a backup before every save. Enabled by default.",
+                "Auto-save before launching game — Automatically saves your load order before launching BG3. Disabled by default.",
+                "Auto-save when loading a profile — Automatically saves your load order after loading a profile. Disabled by default.",
                 "Backup retention — How long to keep automatic backups (7, 14, 30, or 90 days, or forever).",
                 "Clean Old Backups — Manually delete backups older than the retention period.",
             ])
