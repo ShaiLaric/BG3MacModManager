@@ -8,6 +8,8 @@ struct ModDetailView: View {
     @EnvironmentObject var appState: AppState
     @State private var isEditingNexusURL = false
     @State private var editingNexusURL = ""
+    @State private var isEditingNote = false
+    @State private var editingNoteText = ""
 
     var body: some View {
         ScrollView {
@@ -23,6 +25,11 @@ struct ModDetailView: View {
                 // Nexus Mods link
                 if !mod.isBasicGameModule {
                     nexusSection
+                }
+
+                // User notes
+                if !mod.isBasicGameModule {
+                    notesSection
                 }
 
                 // Per-mod warnings
@@ -231,12 +238,126 @@ struct ModDetailView: View {
                         .controlSize(.small)
                 }
             }
+
+            // Update status
+            if let updateInfo = appState.nexusUpdateInfo(for: mod) {
+                HStack(spacing: 8) {
+                    if updateInfo.hasUpdate {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .foregroundStyle(.yellow)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Update Available: \(updateInfo.latestVersion)")
+                                .font(.caption.bold())
+                                .foregroundStyle(.yellow)
+                            Text("Installed: \(updateInfo.installedVersion)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("View on Nexus") {
+                            if let url = URL(string: updateInfo.nexusURL) {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Open this mod's Nexus page to download the update")
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("Up to date")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                        Spacer()
+                    }
+                }
+
+                Text("Last checked: \(updateInfo.checkedDate, style: .relative) ago")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 
     private func saveNexusURL() {
         appState.setNexusURL(editingNexusURL.isEmpty ? nil : editingNexusURL, for: mod)
         isEditingNexusURL = false
+    }
+
+    // MARK: - Notes
+
+    private var notesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Notes")
+                .font(.headline)
+
+            let currentNote = appState.modNotesService.note(for: mod.uuid)
+
+            if isEditingNote {
+                TextEditor(text: $editingNoteText)
+                    .font(.body)
+                    .frame(minHeight: 60, maxHeight: 150)
+                    .border(Color.secondary.opacity(0.3), width: 1)
+
+                HStack {
+                    Spacer()
+
+                    Button("Cancel") {
+                        isEditingNote = false
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Discard changes to note")
+
+                    Button("Save") {
+                        appState.setModNote(
+                            editingNoteText.isEmpty ? nil : editingNoteText,
+                            for: mod
+                        )
+                        isEditingNote = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("Save note for this mod")
+                }
+            } else if let note = currentNote {
+                Text(note)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack {
+                    Spacer()
+
+                    Button {
+                        editingNoteText = note
+                        isEditingNote = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit note")
+
+                    Button {
+                        appState.setModNote(nil, for: mod)
+                    } label: {
+                        Image(systemName: "xmark.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
+                    .help("Remove note")
+                }
+            } else {
+                Button("Add Note") {
+                    editingNoteText = ""
+                    isEditingNote = true
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Add a personal note for this mod")
+            }
+        }
     }
 
     // MARK: - Metadata

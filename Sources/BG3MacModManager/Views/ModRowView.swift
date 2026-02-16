@@ -36,6 +36,21 @@ struct ModRowView: View {
                             .help(category.tooltip)
                     }
 
+                    if appState.hasNexusUpdate(for: mod) {
+                        Text("Update")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.yellow, in: RoundedRectangle(cornerRadius: 3))
+                            .help({
+                                if let info = appState.nexusUpdateInfo(for: mod) {
+                                    return "Update available: v\(info.latestVersion) (installed: v\(info.installedVersion))"
+                                }
+                                return "A newer version is available on Nexus Mods"
+                            }())
+                    }
+
                     if mod.requiresScriptExtender {
                         Text("SE")
                             .font(.caption2.bold())
@@ -76,6 +91,14 @@ struct ModRowView: View {
             }
 
             Spacer()
+
+            // Note indicator
+            if appState.modNotesService.note(for: mod.uuid) != nil {
+                Image(systemName: "note.text")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help("This mod has user notes")
+            }
 
             // Inline dependency status indicator (for active mods with dependencies)
             if isActive && !mod.dependencies.isEmpty && !mod.isBasicGameModule {

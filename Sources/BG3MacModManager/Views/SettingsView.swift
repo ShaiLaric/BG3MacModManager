@@ -10,6 +10,8 @@ struct SettingsView: View {
     @AppStorage("backupRetentionDays") var backupRetentionDays = 30
     @AppStorage("autoSaveBeforeLaunch") var autoSaveBeforeLaunch = false
     @AppStorage("autoSaveOnProfileLoad") var autoSaveOnProfileLoad = false
+    @AppStorage("nexusAPIKey") var nexusAPIKey = ""
+    @AppStorage("autoCheckNexusUpdates") var autoCheckNexusUpdates = false
 
     var body: some View {
         TabView {
@@ -22,7 +24,7 @@ struct SettingsView: View {
             seSettings
                 .tabItem { Label("Script Extender", systemImage: "terminal") }
         }
-        .frame(width: 500, height: 350)
+        .frame(width: 500, height: 420)
         .padding()
     }
 
@@ -73,6 +75,34 @@ struct SettingsView: View {
                             ? "Baldur's Gate 3 detected via Steam"
                             : "Baldur's Gate 3 not found — check that it's installed via Steam")
                 }
+            }
+
+            Section("Nexus Mods") {
+                SecureField("API Key", text: $nexusAPIKey)
+                    .help("Your personal Nexus Mods API key for checking mod updates")
+
+                if nexusAPIKey.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.blue)
+                        Text("An API key is required to check for mod updates.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("Get API Key from Nexus Mods") {
+                        if let url = URL(string: "https://www.nexusmods.com/users/myaccount?tab=api+access") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Opens your Nexus Mods account page where you can generate a personal API key")
+                }
+
+                Toggle("Check for updates on app launch", isOn: $autoCheckNexusUpdates)
+                    .help("Automatically check Nexus Mods for updates when the app starts. Requires an API key and Nexus URLs set on your mods.")
+                    .disabled(nexusAPIKey.isEmpty)
             }
         }
     }

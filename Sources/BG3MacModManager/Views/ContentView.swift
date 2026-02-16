@@ -235,6 +235,13 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if appState.isCheckingForUpdates {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking updates (\(appState.updateCheckProgress.checked)/\(appState.updateCheckProgress.total))...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Text(appState.statusMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -340,6 +347,7 @@ struct ToolsContainerView: View {
     enum Tool: String, CaseIterable {
         case versionGenerator = "Version Generator"
         case pakInspector = "PAK Inspector"
+        case nexusURLImport = "Nexus URL Import"
     }
 
     @State private var selectedTool: Tool = .versionGenerator
@@ -363,6 +371,8 @@ struct ToolsContainerView: View {
                 VersionGeneratorView()
             case .pakInspector:
                 PakInspectorView()
+            case .nexusURLImport:
+                NexusURLImportView()
             }
         }
     }

@@ -135,6 +135,23 @@ struct ModListView: View {
             .disabled(appState.isLoading)
             .help("Rescan mods folder")
 
+            Button {
+                Task { await appState.checkForNexusUpdates() }
+            } label: {
+                if appState.isCheckingForUpdates {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Label("Check Updates", systemImage: "arrow.triangle.2.circlepath")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(appState.isCheckingForUpdates || appState.nexusAPIService.apiKey == nil)
+            .help(appState.nexusAPIService.apiKey == nil
+                ? "Set a Nexus Mods API key in Settings to enable update checking"
+                : "Check Nexus Mods for available updates")
+
             Spacer()
 
             Button {
@@ -444,6 +461,10 @@ struct ModListView: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
                             }
+                            Button(appState.modNotesService.note(for: mod.uuid) != nil ? "Edit Note" : "Add Note") {
+                                appState.selectedModID = mod.uuid
+                            }
+                            .help("Add or edit a personal note for this mod")
                             if let filePath = mod.pakFilePath {
                                 Divider()
                                 Button("Reveal in Finder") {
@@ -534,6 +555,10 @@ struct ModListView: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(mod.uuid, forType: .string)
                             }
+                            Button(appState.modNotesService.note(for: mod.uuid) != nil ? "Edit Note" : "Add Note") {
+                                appState.selectedModID = mod.uuid
+                            }
+                            .help("Add or edit a personal note for this mod")
                             if let filePath = mod.pakFilePath {
                                 Divider()
                                 Button("Reveal in Finder") {

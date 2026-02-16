@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.0.6**.
+BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.1.0**.
 
 ## Build Environment
 
@@ -13,10 +13,10 @@ BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 
 ```
 Sources/BG3MacModManager/
   App/          - App entry point (BG3MacModManagerApp), AppState
-  Models/       - Data models (ModModel, ModCategory, etc.)
-  Services/     - Business logic (ModService, LaunchService, etc.)
+  Models/       - Data models (ModModel, ModCategory, NexusUpdateInfo, etc.)
+  Services/     - Business logic (ModService, LaunchService, ModNotesService, NexusAPIService, NexusURLImportService, etc.)
   Utilities/    - Helpers (FileLocations, etc.)
-  Views/        - SwiftUI views (ContentView, ModListView, etc.)
+  Views/        - SwiftUI views (ContentView, ModListView, NexusURLImportView, etc.)
 Tests/BG3MacModManagerTests/
   TestHelpers.swift            - Factory functions (makeModInfo, makeDependency, makeSEStatus)
   Version64Tests.swift         - Version64 model tests
@@ -28,6 +28,9 @@ Tests/BG3MacModManagerTests/
   ModValidationServiceTests.swift     - All 10 validation checks, topological sort
   LoadOrderImportServiceTests.swift   - BG3MM JSON & LSX import parsing
   PakReaderTests.swift                - Binary format errors, CompressionType
+  ModNotesServiceTests.swift          - Per-mod notes persistence
+  NexusURLImportServiceTests.swift    - CSV/JSON/TXT import parsing, mod matching
+  NexusAPIServiceTests.swift          - Mod ID extraction, update result logic, cache encoding
 ```
 
 ## Key Patterns
@@ -86,12 +89,12 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 | # | Title | Scope | Status | Description | Key Files |
 |---|-------|-------|--------|-------------|-----------|
 | 3.1 | Operation History Panel | L | | Named undo stack with a History sidebar item ("Activated Mod X", "Smart Sorted", "Loaded Profile Y"). | `AppState.swift`, new `HistoryView.swift`, `ContentView.swift` |
-| 3.2 | Nexus Mods Update Detection | L | | Query Nexus API to compare installed vs. latest versions; show "Update Available" badges. Requires API key in Settings. | New `NexusAPIService.swift`, `SettingsView.swift`, `ModRowView.swift` |
+| 3.2 | Nexus Mods Update Detection | L | **Done** | Query Nexus API to compare installed vs. latest versions; show "Update Available" badges. Requires API key in Settings. | `NexusAPIService.swift`, `NexusUpdateInfo.swift`, `SettingsView.swift`, `ModRowView.swift`, `ModDetailView.swift`, `ModListView.swift`, `ContentView.swift`, `AppState.swift` |
 | 3.3 | Mod Groups / Collections | L | | User-defined named groups orthogonal to categories. Activate/deactivate/view entire groups. | New `ModGroup.swift`, new `ModGroupService.swift`, multiple views |
 | 3.4 | Conflict Resolution Advisor | L | | Analyze conflict graph and suggest compatibility patches, load order adjustments, and Nexus search links. | New `ConflictAdvisorService.swift`, `ModListView.swift`, `ModDetailView.swift` |
-| 3.5 | Comprehensive Test Suite | L | **Done** | ~120 tests across 8 test files + 1 helper: `ModInfoTests`, `DataBinaryReadingTests`, `ModCategoryTests`, `TextExportServiceTests`, `CategoryInferenceServiceTests`, `ModValidationServiceTests`, `LoadOrderImportServiceTests`, `PakReaderTests`. | `TestHelpers.swift`, multiple test files in `Tests/` |
-| 3.6 | Per-Mod User Notes | M–L | | Editable notes per mod stored in app support JSON, editable from detail panel, icon indicator in row. | New `ModNotesService.swift`, `ModDetailView.swift`, `ModRowView.swift` |
-| 3.7 | Bulk Nexus URL Import | M–L | | Import Vortex/MO2 export files to bulk-populate Nexus URLs for matching mods. | New `NexusURLImportView.swift`, `NexusURLService.swift`, `ContentView.swift` |
+| 3.5 | Comprehensive Test Suite | L | **Done** | ~150 tests across 11 test files + 1 helper: `ModInfoTests`, `DataBinaryReadingTests`, `ModCategoryTests`, `TextExportServiceTests`, `CategoryInferenceServiceTests`, `ModValidationServiceTests`, `LoadOrderImportServiceTests`, `PakReaderTests`, `ModNotesServiceTests`, `NexusURLImportServiceTests`, `NexusAPIServiceTests`. | `TestHelpers.swift`, multiple test files in `Tests/` |
+| 3.6 | Per-Mod User Notes | M–L | **Done** | Editable notes per mod stored in app support JSON, editable from detail panel, icon indicator in row. | `ModNotesService.swift`, `ModDetailView.swift`, `ModRowView.swift`, `ModListView.swift`, `AppState.swift` |
+| 3.7 | Bulk Nexus URL Import | M–L | **Done** | Import CSV/TSV/JSON/TXT files to bulk-populate Nexus URLs. Matches by UUID, exact name, or fuzzy name. | `NexusURLImportService.swift`, `NexusURLImportView.swift`, `NexusURLService.swift`, `ContentView.swift`, `AppState.swift` |
 
 ### Recommended Implementation Order
 
@@ -106,5 +109,5 @@ Items marked ~~strikethrough~~ are complete.
 7. ~~**2.3 → 2.8 → 2.5** — Inactive sorting, auto-save toggles, positional drag~~
 8. ~~**2.4 → 2.6** — PAK Inspector, advanced filters~~
 9. ~~**3.5** — Test suite (pays dividends before larger features)~~
-10. **3.6 → 3.7 → 3.2** — Per-mod notes, bulk Nexus import, update detection
+10. ~~**3.6 → 3.7 → 3.2** — Per-mod notes, bulk Nexus import, update detection~~
 11. **3.3 → 3.1 → 3.4** — Mod groups, history panel, conflict advisor
