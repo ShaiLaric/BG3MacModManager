@@ -138,7 +138,7 @@ struct HelpView: View {
                 "Profiles — Save and load named mod configurations",
                 "Backups — View and restore modsettings.lsx backups",
                 "Script Extender — Check bg3se-macos installation status",
-                "Tools — Version number converter and PAK file inspector",
+                "Tools — Version number converter and PAK/ZIP file inspector",
                 "Help — This documentation",
             ])
         }
@@ -454,14 +454,14 @@ struct HelpView: View {
             helpHeading("Importing Mods")
             helpText("There are several ways to import mod files:")
             helpBulletList([
-                "File > Import Mod (Cmd+I) — Opens a file picker for .pak, .zip, .tar, and other archive formats",
+                "File > Import Mod (Cmd+I) — Opens a file picker for .pak, .zip, .tar, and other archive formats. You can select a ZIP file directly without needing to open it first.",
                 "Drag and drop — Drag mod files directly onto the app window from Finder",
                 "Manual — Place .pak files directly in the Mods folder and click Refresh",
             ])
             helpText("""
-            When importing archives (.zip, .tar, etc.), the app extracts all .pak files and \
-            their companion info.json files into the Mods folder. After import, you are prompted \
-            to activate the newly imported mods.
+            When importing archives (.zip, .tar, etc.), the app automatically extracts all .pak \
+            files and their companion info.json files into the Mods folder. After import, you are \
+            prompted to activate the newly imported mods.
             """)
 
             helpHeading("Importing Load Orders")
@@ -645,8 +645,8 @@ struct HelpView: View {
 
             helpHeading("PAK Inspector")
             helpText("""
-            The PAK Inspector lets you open any .pak (LSPK v18) archive and examine its contents \
-            without extracting the entire file. Use it to:
+            The PAK Inspector lets you open any .pak (LSPK v18) archive or .zip file containing \
+            a PAK and examine its contents without extracting the entire file. Use it to:
             """)
             helpBulletList([
                 "View archive header information (version, flags, priority, solid compression status)",
@@ -656,6 +656,12 @@ struct HelpView: View {
                 "Search/filter the file list by name",
                 "Copy file paths from within the archive",
             ])
+            helpText("""
+            You can open ZIP files directly — the inspector will extract the PAK inside \
+            automatically. If a ZIP contains multiple PAK files, you will be prompted to choose \
+            which one to inspect. Any info.json found alongside the PAK in the ZIP is available \
+            via the \"View info.json (ZIP)\" quick action button.
+            """)
             helpText("""
             Right-click any file in the list to view its contents or copy its path. This is useful \
             for debugging mod issues, verifying mod contents, or inspecting unfamiliar PAK files.

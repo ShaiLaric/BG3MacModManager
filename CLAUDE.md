@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.1.0**.
+BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.2.0**.
 
 ## Build Environment
 
@@ -39,6 +39,7 @@ Tests/BG3MacModManagerTests/
 - **Button styles**: `.borderedProminent` for primary actions, `.bordered` for secondary, `.plain` for icon-only
 - **Toolbar**: Standard macOS toolbar in ContentView; in-content action bars in views like ModListView for prominent buttons
 - **All buttons** should have `.help()` tooltips
+- **Help & tooltips**: Any changes or new features must update `HelpView.swift` documentation and ensure all new buttons/controls have `.help()` tooltips
 - **State**: Single `AppState` (ObservableObject) passed via `.environmentObject()`
 - **Async**: Use `Task { await ... }` in button actions for async AppState methods
 
@@ -76,7 +77,7 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 | 2.1 | Undo/Redo for Load Order | M | **Done** | Snapshot `(activeMods, inactiveMods)` before each mutation; support Cmd+Z / Cmd+Shift+Z. | `AppState.swift`, `BG3MacModManagerApp.swift` |
 | 2.2 | Profile Load Missing Mods Report | M | **Done** | When loading a profile, show a summary dialog of matched vs. missing mods with Nexus URLs. Reuse `ImportSummaryView`. | `AppState.swift`, `ContentView.swift`, `ImportSummaryView.swift` |
 | 2.3 | Inactive Mods Sorting Options | S–M | **Done** | Sort picker for inactive section: by name, author, category, file date, or file size. Persistent via @AppStorage. | `ModListView.swift` |
-| 2.4 | PAK Inspector Tool | M | **Done** | New tool under "Tools" sidebar to inspect any PAK file's internal listing, meta.lsx, and info.json. Uses existing `PakReader`. | `PakInspectorView.swift`, `ContentView.swift`, `PakReader.swift` |
+| 2.4 | PAK Inspector Tool | M | **Done** | New tool under "Tools" sidebar to inspect any PAK or ZIP file's internal listing, meta.lsx, and info.json. Accepts ZIP archives containing PAKs with multi-PAK picker and ZIP-level info.json viewing. Uses existing `PakReader` and `ArchiveService`. | `PakInspectorView.swift`, `ContentView.swift`, `PakReader.swift` |
 | 2.5 | Positional Drag from Inactive to Active | M | **Done** | Dragging an inactive mod into the active list inserts at the drop position via `.onInsert`. Falls back to append when filters are active. | `ModListView.swift`, `AppState.swift` |
 | 2.6 | Advanced Filter Popover | M | **Done** | Filter button in category bar with popover for: SE required, has warnings, metadata source. Badge shows active filter count. | `ModListView.swift` |
 | 2.7 | Profile Renaming and Updating | M | **Done** | "Rename" and "Update" (overwrite with current load order) actions on profile rows. | `ProfileManagerView.swift`, `ProfileService.swift`, `AppState.swift` |

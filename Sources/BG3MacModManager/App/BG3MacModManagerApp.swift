@@ -133,6 +133,7 @@ struct BG3MacModManagerApp: App {
         ]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
+        panel.treatsFilePackagesAsDirectories = false
 
         if panel.runModal() == .OK, !panel.urls.isEmpty {
             Task {

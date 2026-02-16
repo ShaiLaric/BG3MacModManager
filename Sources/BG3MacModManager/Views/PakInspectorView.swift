@@ -4,14 +4,26 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Tool for inspecting the internal contents of a PAK (LSPK) archive file.
+/// Supports opening .pak files directly or .zip archives containing a PAK.
 struct PakInspectorView: View {
+    /// URL of the PAK file being inspected (may be inside a temp dir if extracted from ZIP).
     @State private var selectedURL: URL?
+    /// The original file the user selected (could be .pak or .zip).
+    @State private var sourceURL: URL?
     @State private var header: PakReader.PakHeader?
     @State private var entries: [PakReader.FileEntry] = []
     @State private var errorText: String?
     @State private var searchText = ""
-    @State private var showFilePicker = false
     @State private var viewingContent: FileContentItem?
+
+    /// Temporary directory holding extracted ZIP contents; cleaned up on new load or disappear.
+    @State private var tempExtractionDir: URL?
+    /// info.json content found alongside the PAK in the ZIP (not inside the PAK).
+    @State private var zipInfoJsonContent: String?
+    /// Whether to show the PAK picker when a ZIP contains multiple PAKs.
+    @State private var showPakPicker = false
+    /// PAK files found in the current ZIP (for the picker).
+    @State private var availablePaks: [URL] = []
 
     /// Wrapper for the content viewer sheet.
     struct FileContentItem: Identifiable {
@@ -56,28 +68,25 @@ struct PakInspectorView: View {
                     Image(systemName: "doc.zipper")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
-                    Text("Select a PAK file to inspect")
+                    Text("Select a PAK or ZIP file to inspect")
                         .foregroundStyle(.secondary)
-                    Button("Open PAK File...") {
-                        showFilePicker = true
+                    Button("Open PAK/ZIP File\u{2026}") {
+                        openFilePicker()
                     }
                     .buttonStyle(.borderedProminent)
-                    .help("Choose a .pak file to inspect its contents")
+                    .help("Choose a .pak or .zip file to inspect its contents")
                 }
                 Spacer()
             }
         }
-        .fileImporter(
-            isPresented: $showFilePicker,
-            allowedContentTypes: [UTType(filenameExtension: "pak") ?? .data],
-            allowsMultipleSelection: false
-        ) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                loadPak(url)
-            }
-        }
         .sheet(item: $viewingContent) { item in
             fileContentSheet(item)
+        }
+        .sheet(isPresented: $showPakPicker) {
+            pakPickerSheet
+        }
+        .onDisappear {
+            cleanupTempDir()
         }
     }
 
@@ -85,21 +94,30 @@ struct PakInspectorView: View {
 
     private var fileSelectionBar: some View {
         HStack(spacing: 12) {
-            Button("Open PAK File...") {
-                showFilePicker = true
+            Button("Open PAK/ZIP File\u{2026}") {
+                openFilePicker()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
-            .help("Choose a .pak file to inspect its contents")
+            .help("Choose a .pak or .zip file to inspect its contents")
 
-            if let url = selectedURL {
-                Image(systemName: "doc.zipper")
+            if let url = sourceURL {
+                Image(systemName: url.pathExtension.lowercased() == "zip" ? "doc.zipper" : "doc.zipper")
                     .foregroundStyle(.secondary)
-                Text(url.lastPathComponent)
-                    .font(.body.monospaced())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(url.lastPathComponent)
+                        .font(.body.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    if let pakURL = selectedURL, pakURL.absoluteString != url.absoluteString {
+                        Text(pakURL.lastPathComponent)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
 
                 Spacer()
 
@@ -109,7 +127,7 @@ struct PakInspectorView: View {
                     Image(systemName: "arrow.right.circle")
                 }
                 .buttonStyle(.plain)
-                .help("Reveal this PAK file in Finder")
+                .help("Reveal this file in Finder")
             } else {
                 Spacer()
             }
@@ -177,6 +195,19 @@ struct PakInspectorView: View {
             .controlSize(.small)
             .disabled(selectedURL == nil || !entries.contains { $0.name.hasSuffix("info.json") })
             .help("Extract and view the mod's info.json metadata file")
+
+            if zipInfoJsonContent != nil {
+                Button {
+                    if let content = zipInfoJsonContent {
+                        viewingContent = FileContentItem(name: "info.json (from ZIP)", content: content)
+                    }
+                } label: {
+                    Label("View info.json (ZIP)", systemImage: "curlybraces")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("View the info.json metadata file found alongside the PAK in the ZIP archive")
+            }
 
             Spacer()
 
@@ -291,21 +322,160 @@ struct PakInspectorView: View {
         .frame(minWidth: 600, minHeight: 400)
     }
 
+    // MARK: - PAK Picker Sheet
+
+    private var pakPickerSheet: some View {
+        VStack(spacing: 12) {
+            Text("Multiple PAK Files Found")
+                .font(.headline)
+            Text("This ZIP contains \(availablePaks.count) PAK files. Choose which one to inspect:")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            List(availablePaks, id: \.absoluteString) { pakURL in
+                Button {
+                    showPakPicker = false
+                    loadPak(pakURL, isFromZip: true)
+                } label: {
+                    HStack {
+                        Image(systemName: "doc.zipper")
+                        Text(pakURL.lastPathComponent)
+                            .font(.body.monospaced())
+                        Spacer()
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: pakURL.path),
+                           let size = attrs[.size] as? UInt64 {
+                            Text(formatBytes(size))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(minHeight: 150, maxHeight: 300)
+
+            Button("Cancel") {
+                showPakPicker = false
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut(.cancelAction)
+            .help("Close without selecting a PAK file")
+        }
+        .padding()
+        .frame(minWidth: 400)
+    }
+
+    // MARK: - File Picker
+
+    private func openFilePicker() {
+        let panel = NSOpenPanel()
+        panel.title = "Open PAK or ZIP File"
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "pak") ?? .data,
+            UTType(filenameExtension: "zip") ?? .data,
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.treatsFilePackagesAsDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        handleSelectedFile(url)
+    }
+
+    private func handleSelectedFile(_ url: URL) {
+        let ext = url.pathExtension.lowercased()
+        if ext == "zip" {
+            loadZip(url)
+        } else {
+            cleanupTempDir()
+            loadPak(url)
+        }
+    }
+
     // MARK: - Actions
 
-    private func loadPak(_ url: URL) {
+    private func loadPak(_ url: URL, isFromZip: Bool = false) {
         do {
             let result = try PakReader.inspectPak(at: url)
             selectedURL = url
+            if !isFromZip {
+                sourceURL = url
+                zipInfoJsonContent = nil
+            }
             header = result.header
             entries = result.entries
             errorText = nil
             searchText = ""
         } catch {
             selectedURL = url
+            if !isFromZip { sourceURL = url }
             header = nil
             entries = []
             errorText = error.localizedDescription
+        }
+    }
+
+    private func loadZip(_ url: URL) {
+        cleanupTempDir()
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PakInspector-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let archiveService = ArchiveService()
+            try archiveService.extract(archive: url, to: tempDir)
+        } catch {
+            sourceURL = url
+            selectedURL = nil
+            header = nil
+            entries = []
+            errorText = "Failed to extract ZIP: \(error.localizedDescription)"
+            return
+        }
+
+        tempExtractionDir = tempDir
+
+        // Find all PAK files and the first info.json recursively
+        var pakFiles: [URL] = []
+        var infoJsonURL: URL?
+        if let enumerator = FileManager.default.enumerator(at: tempDir, includingPropertiesForKeys: nil) {
+            while let fileURL = enumerator.nextObject() as? URL {
+                if fileURL.pathExtension.lowercased() == "pak" {
+                    pakFiles.append(fileURL)
+                } else if fileURL.lastPathComponent.lowercased() == "info.json" && infoJsonURL == nil {
+                    infoJsonURL = fileURL
+                }
+            }
+        }
+
+        // Load ZIP-level info.json if found
+        if let jsonURL = infoJsonURL,
+           let data = try? Data(contentsOf: jsonURL),
+           let text = String(data: data, encoding: .utf8) {
+            zipInfoJsonContent = text
+        } else {
+            zipInfoJsonContent = nil
+        }
+
+        sourceURL = url
+
+        if pakFiles.isEmpty {
+            selectedURL = nil
+            header = nil
+            entries = []
+            errorText = "No .pak files found in this ZIP archive."
+        } else if pakFiles.count == 1 {
+            loadPak(pakFiles[0], isFromZip: true)
+        } else {
+            // Multiple PAKs — show picker
+            availablePaks = pakFiles.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            showPakPicker = true
+        }
+    }
+
+    private func cleanupTempDir() {
+        if let dir = tempExtractionDir {
+            try? FileManager.default.removeItem(at: dir)
+            tempExtractionDir = nil
         }
     }
 
