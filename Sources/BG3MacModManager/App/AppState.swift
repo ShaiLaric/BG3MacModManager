@@ -70,6 +70,9 @@ final class AppState: ObservableObject {
     /// Whether to show the post-import activation prompt.
     @Published var showImportActivation: Bool = false
 
+    /// Whether to show the custom mod import file picker.
+    @Published var showModImportPicker: Bool = false
+
     /// Request to navigate to a specific sidebar tab (set by action buttons, consumed by ContentView).
     @Published var navigateToSidebarItem: String?
 

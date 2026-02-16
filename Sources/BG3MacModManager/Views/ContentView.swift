@@ -125,6 +125,16 @@ struct ContentView: View {
             let names = appState.lastImportedMods.map(\.name).joined(separator: ", ")
             Text("\(appState.lastImportedMods.count) new mod(s) imported: \(names)\n\nWould you like to add them to your active load order?")
         }
+        .sheet(isPresented: $appState.showModImportPicker) {
+            ModFilePickerView(
+                title: "Import Mod",
+                prompt: "Import",
+                allowedExtensions: ["pak", "zip", "tar", "gz", "tgz", "bz2", "xz"],
+                allowsMultipleSelection: true
+            ) { urls in
+                Task { await appState.importMods(from: urls) }
+            }
+        }
         .confirmationDialog(
             "Permanently Delete Mod\(appState.modsToDelete.count == 1 ? "" : "s")?",
             isPresented: $appState.showDeleteModConfirmation,
