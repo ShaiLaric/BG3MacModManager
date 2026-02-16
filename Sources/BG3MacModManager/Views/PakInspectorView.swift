@@ -24,6 +24,8 @@ struct PakInspectorView: View {
     @State private var showPakPicker = false
     /// PAK files found in the current ZIP (for the picker).
     @State private var availablePaks: [URL] = []
+    /// Whether to show the custom file picker for selecting a PAK or ZIP.
+    @State private var showSelectFilePicker = false
 
     /// Wrapper for the content viewer sheet.
     struct FileContentItem: Identifiable {
@@ -91,6 +93,18 @@ struct PakInspectorView: View {
         }
         .sheet(isPresented: $showPakPicker) {
             pakPickerSheet
+        }
+        .sheet(isPresented: $showSelectFilePicker) {
+            ModFilePickerView(
+                title: "Select PAK or ZIP File",
+                prompt: "Select",
+                allowedExtensions: ["pak", "zip"],
+                allowsMultipleSelection: false
+            ) { urls in
+                if let url = urls.first {
+                    handleSelectedFile(url)
+                }
+            }
         }
         .onDisappear {
             cleanupTempDir()
@@ -380,18 +394,10 @@ struct PakInspectorView: View {
 
     // MARK: - File Pickers
 
-    /// Select a PAK or ZIP file as-is. ZIPs are auto-extracted to find the PAK inside.
-    /// Uses a delegate instead of allowedContentTypes so macOS won't browse into ZIPs.
+    /// Show the custom file picker sheet for selecting a PAK or ZIP file.
+    /// Uses a custom picker instead of NSOpenPanel so ZIPs are selectable as opaque files.
     private func selectFilePicker() {
-        let panel = NSOpenPanel()
-        panel.title = "Select PAK or ZIP File"
-        panel.prompt = "Select"
-        panel.delegate = PakInspectorPanelDelegate.shared
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        handleSelectedFile(url)
+        showSelectFilePicker = true
     }
 
     /// Browse into a ZIP archive to pick a specific PAK file from inside it.
@@ -587,20 +593,3 @@ struct PakInspectorView: View {
     }
 }
 
-// MARK: - PAK Inspector Panel Delegate
-
-/// Filters the PAK Inspector "Select File" picker to show only .pak and .zip files.
-/// By not using allowedContentTypes, ZIPs remain opaque (non-browsable) in the panel.
-private class PakInspectorPanelDelegate: NSObject, NSOpenSavePanelDelegate {
-    static let shared = PakInspectorPanelDelegate()
-
-    private static let allowedExtensions: Set<String> = ["pak", "zip"]
-
-    func panel(_ sender: Any, shouldEnable url: URL) -> Bool {
-        var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-            return true
-        }
-        return Self.allowedExtensions.contains(url.pathExtension.lowercased())
-    }
-}

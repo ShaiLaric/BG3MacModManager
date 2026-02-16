@@ -16,7 +16,7 @@ Sources/BG3MacModManager/
   Models/       - Data models (ModModel, ModCategory, NexusUpdateInfo, etc.)
   Services/     - Business logic (ModService, LaunchService, ModNotesService, NexusAPIService, NexusURLImportService, etc.)
   Utilities/    - Helpers (FileLocations, etc.)
-  Views/        - SwiftUI views (ContentView, ModListView, NexusURLImportView, etc.)
+  Views/        - SwiftUI views (ContentView, ModListView, ModFilePickerView, NexusURLImportView, etc.)
 Tests/BG3MacModManagerTests/
   TestHelpers.swift            - Factory functions (makeModInfo, makeDependency, makeSEStatus)
   Version64Tests.swift         - Version64 model tests
@@ -79,7 +79,7 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 | 2.1 | Undo/Redo for Load Order | M | **Done** | Snapshot `(activeMods, inactiveMods)` before each mutation; support Cmd+Z / Cmd+Shift+Z. | `AppState.swift`, `BG3MacModManagerApp.swift` |
 | 2.2 | Profile Load Missing Mods Report | M | **Done** | When loading a profile, show a summary dialog of matched vs. missing mods with Nexus URLs. Reuse `ImportSummaryView`. | `AppState.swift`, `ContentView.swift`, `ImportSummaryView.swift` |
 | 2.3 | Inactive Mods Sorting Options | S–M | **Done** | Sort picker for inactive section: by name, author, category, file date, or file size. Persistent via @AppStorage. | `ModListView.swift` |
-| 2.4 | PAK Inspector Tool | M | **Done** | New tool under "Tools" sidebar to inspect any PAK or ZIP file's internal listing, meta.lsx, and info.json. Accepts ZIP archives containing PAKs with multi-PAK picker and ZIP-level info.json viewing. Uses existing `PakReader` and `ArchiveService`. | `PakInspectorView.swift`, `ContentView.swift`, `PakReader.swift` |
+| 2.4 | PAK Inspector Tool | M | **Done** | New tool under "Tools" sidebar to inspect any PAK or ZIP file's internal listing, meta.lsx, and info.json. Accepts ZIP archives containing PAKs with multi-PAK picker and ZIP-level info.json viewing. Uses custom `ModFilePickerView` for ZIP-as-file selection (bypasses macOS NSOpenPanel ZIP navigation), existing `PakReader` and `ArchiveService`. | `PakInspectorView.swift`, `ModFilePickerView.swift`, `ContentView.swift`, `PakReader.swift` |
 | 2.5 | Positional Drag from Inactive to Active | M | **Done** | Dragging an inactive mod into the active list inserts at the drop position via `.onInsert`. Falls back to append when filters are active. | `ModListView.swift`, `AppState.swift` |
 | 2.6 | Advanced Filter Popover | M | **Done** | Filter button in category bar with popover for: SE required, has warnings, metadata source. Badge shows active filter count. | `ModListView.swift` |
 | 2.7 | Profile Renaming and Updating | M | **Done** | "Rename" and "Update" (overwrite with current load order) actions on profile rows. | `ProfileManagerView.swift`, `ProfileService.swift`, `AppState.swift` |

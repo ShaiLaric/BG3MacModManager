@@ -120,18 +120,7 @@ struct BG3MacModManagerApp: App {
     }
 
     private func importModFromPanel() {
-        let panel = NSOpenPanel()
-        panel.title = "Import Mod"
-        panel.prompt = "Import"
-        panel.delegate = ImportModPanelDelegate.shared
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-
-        if panel.runModal() == .OK, !panel.urls.isEmpty {
-            Task {
-                await appState.importMods(from: panel.urls)
-            }
-        }
+        appState.showModImportPicker = true
     }
 
     private func importFromSavePanel() {
@@ -177,24 +166,6 @@ struct BG3MacModManagerApp: App {
 }
 
 // MARK: - Unsaved Changes on Close/Quit
-
-/// Filters the Import Mod file picker to show only .pak and archive files.
-/// By not using allowedContentTypes, ZIPs remain opaque (non-browsable) in the panel.
-private class ImportModPanelDelegate: NSObject, NSOpenSavePanelDelegate {
-    static let shared = ImportModPanelDelegate()
-
-    private static let allowedExtensions: Set<String> = [
-        "pak", "zip", "tar", "gz", "tgz", "bz2", "xz",
-    ]
-
-    func panel(_ sender: Any, shouldEnable url: URL) -> Bool {
-        var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-            return true
-        }
-        return Self.allowedExtensions.contains(url.pathExtension.lowercased())
-    }
-}
 
 /// Response from the unsaved changes confirmation alert.
 private enum UnsavedChangesResponse {

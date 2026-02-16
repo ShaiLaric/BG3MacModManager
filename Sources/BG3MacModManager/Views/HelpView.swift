@@ -454,7 +454,7 @@ struct HelpView: View {
             helpHeading("Importing Mods")
             helpText("There are several ways to import mod files:")
             helpBulletList([
-                "File > Import Mod (Cmd+I) — Opens a file picker for .pak, .zip, .tar, and other archive formats. Click \"Import\" to select a ZIP file directly — the app extracts the PAK inside automatically.",
+                "File > Import Mod (Cmd+I) — Opens a file browser for .pak, .zip, .tar, and other archive formats. ZIP files are shown as regular files (not browsable). Select a ZIP and click \"Import\" — the app extracts the PAK inside automatically.",
                 "Drag and drop — Drag mod files directly onto the app window from Finder",
                 "Manual — Place .pak files directly in the Mods folder and click Refresh",
             ])
@@ -657,10 +657,12 @@ struct HelpView: View {
                 "Copy file paths from within the archive",
             ])
             helpText("""
-            Use \"Select File...\" to pick a .pak or .zip file. ZIP files are opened automatically \
-            — the inspector extracts the PAK inside. If a ZIP contains multiple PAK files, you \
-            will be prompted to choose which one to inspect. Any info.json found alongside the PAK \
-            in the ZIP is available via the \"View info.json (ZIP)\" quick action button.
+            Use \"Select File...\" to open a custom file browser where you can pick a .pak or .zip \
+            file. Unlike the standard macOS file dialog, ZIP files are treated as regular files — \
+            clicking a ZIP selects it (it will not open to show its contents). The inspector then \
+            automatically extracts the PAK inside. If a ZIP contains multiple PAK files, you will \
+            be prompted to choose which one to inspect. Any info.json found alongside the PAK in \
+            the ZIP is available via the \"View info.json (ZIP)\" quick action button.
             """)
             helpText("""
             Use \"Browse ZIP...\" to navigate inside a ZIP archive and select a specific .pak file \
