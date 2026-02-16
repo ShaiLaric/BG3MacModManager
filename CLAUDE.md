@@ -39,6 +39,7 @@ Tests/BG3MacModManagerTests/
 - **Button styles**: `.borderedProminent` for primary actions, `.bordered` for secondary, `.plain` for icon-only
 - **Toolbar**: Standard macOS toolbar in ContentView; in-content action bars in views like ModListView for prominent buttons
 - **All buttons** should have `.help()` tooltips
+- **Help & tooltips**: Any changes or new features must update `HelpView.swift` documentation and ensure all new buttons/controls have `.help()` tooltips
 - **State**: Single `AppState` (ObservableObject) passed via `.environmentObject()`
 - **Async**: Use `Task { await ... }` in button actions for async AppState methods
 
