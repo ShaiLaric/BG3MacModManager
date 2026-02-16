@@ -28,6 +28,19 @@ final class NexusURLService {
         urls
     }
 
+    /// Set multiple URLs at once (for bulk import operations).
+    /// Each key is a mod UUID, each value is the Nexus URL.
+    func bulkSetURLs(_ newURLs: [String: String]) {
+        for (uuid, url) in newURLs {
+            if url.isEmpty {
+                urls.removeValue(forKey: uuid)
+            } else {
+                urls[uuid] = url
+            }
+        }
+        save()
+    }
+
     // MARK: - Persistence
 
     private var urls: [String: String] = [:]

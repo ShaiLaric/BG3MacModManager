@@ -80,6 +80,11 @@ final class AppState: ObservableObject {
     /// Whether the in-memory load order differs from what is saved on disk.
     @Published var hasUnsavedChanges: Bool = false
 
+    /// Nexus Mods update check results.
+    @Published var nexusUpdateResults: [String: NexusUpdateResult] = [:]
+    @Published var isCheckingForUpdates: Bool = false
+    @Published var updateCheckProgress: (checked: Int, total: Int) = (0, 0)
+
     /// Whether the initial duplicate check has been performed (auto-show only on first load).
     private var hasPerformedInitialDuplicateCheck = false
 
@@ -120,6 +125,8 @@ final class AppState: ObservableObject {
     let categoryService = CategoryInferenceService()
     let loadOrderImportService = LoadOrderImportService()
     let nexusURLService = NexusURLService()
+    let modNotesService = ModNotesService()
+    let nexusAPIService = NexusAPIService()
 
     // MARK: - Initialization
 
@@ -132,6 +139,12 @@ final class AppState: ObservableObject {
             deleteModCrashSanityCheckIfNeeded()
             await refreshAll()
             checkForExternalModSettingsChange()
+
+            // Auto-check for Nexus updates if enabled
+            if UserDefaults.standard.bool(forKey: "autoCheckNexusUpdates"),
+               nexusAPIService.apiKey != nil {
+                await checkForNexusUpdates()
+            }
         }
     }
 
@@ -329,6 +342,9 @@ final class AppState: ObservableObject {
         }
         if let nexusURL = nexusURLService.url(for: mod.uuid) {
             lines.append("Nexus: \(nexusURL)")
+        }
+        if let note = modNotesService.note(for: mod.uuid) {
+            lines.append("Note: \(note)")
         }
 
         let text = lines.joined(separator: "\n")
@@ -1421,6 +1437,64 @@ final class AppState: ObservableObject {
     func setNexusURL(_ url: String?, for mod: ModInfo) {
         nexusURLService.setURL(url, for: mod.uuid)
         objectWillChange.send()
+    }
+
+    /// Bulk-set Nexus URLs from an import operation.
+    func bulkSetNexusURLs(_ urls: [String: String]) {
+        nexusURLService.bulkSetURLs(urls)
+        objectWillChange.send()
+        statusMessage = "Set Nexus URLs for \(urls.count) mod(s)"
+    }
+
+    // MARK: - Mod Notes
+
+    /// Set or clear a user note for a mod.
+    func setModNote(_ text: String?, for mod: ModInfo) {
+        modNotesService.setNote(text, for: mod.uuid)
+        objectWillChange.send()
+    }
+
+    // MARK: - Nexus Updates
+
+    /// Check all mods with Nexus URLs for available updates.
+    func checkForNexusUpdates() async {
+        guard nexusAPIService.apiKey != nil else {
+            errorMessage = "No Nexus Mods API key configured. Set one in Settings > General > Nexus Mods."
+            showError = true
+            return
+        }
+
+        isCheckingForUpdates = true
+        defer { isCheckingForUpdates = false }
+
+        do {
+            let allMods = activeMods + inactiveMods
+            let results = try await nexusAPIService.checkForUpdates(
+                mods: allMods,
+                nexusURLService: nexusURLService
+            ) { [weak self] checked, total in
+                Task { @MainActor in
+                    self?.updateCheckProgress = (checked, total)
+                }
+            }
+            nexusUpdateResults = results
+            let updateCount = results.values.filter(\.hasUpdate).count
+            statusMessage = updateCount > 0
+                ? "Found \(updateCount) mod update(s) available"
+                : "All mods are up to date"
+        } catch {
+            showError(error)
+        }
+    }
+
+    /// Whether a mod has an available update on Nexus.
+    func hasNexusUpdate(for mod: ModInfo) -> Bool {
+        nexusUpdateResults[mod.uuid]?.hasUpdate == true
+    }
+
+    /// Get the full update info for a mod, if available.
+    func nexusUpdateInfo(for mod: ModInfo) -> NexusUpdateResult? {
+        nexusUpdateResults[mod.uuid]
     }
 
     // MARK: - Error Handling
