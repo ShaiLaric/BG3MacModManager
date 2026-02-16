@@ -122,6 +122,7 @@ struct BG3MacModManagerApp: App {
     private func importModFromPanel() {
         let panel = NSOpenPanel()
         panel.title = "Import Mod"
+        panel.prompt = "Import"
         panel.allowedContentTypes = [
             .init(filenameExtension: "pak")!,
             .init(filenameExtension: "zip")!,

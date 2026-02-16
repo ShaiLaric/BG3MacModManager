@@ -70,11 +70,18 @@ struct PakInspectorView: View {
                         .foregroundStyle(.secondary)
                     Text("Select a PAK or ZIP file to inspect")
                         .foregroundStyle(.secondary)
-                    Button("Open PAK/ZIP File\u{2026}") {
-                        openFilePicker()
+                    HStack(spacing: 8) {
+                        Button("Select File\u{2026}") {
+                            selectFilePicker()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Select a .pak or .zip file \u{2014} ZIP files are opened automatically to find the PAK inside")
+                        Button("Browse ZIP\u{2026}") {
+                            browseZipPicker()
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Browse inside a ZIP archive to select a specific .pak file")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .help("Choose a .pak or .zip file to inspect its contents")
                 }
                 Spacer()
             }
@@ -94,12 +101,19 @@ struct PakInspectorView: View {
 
     private var fileSelectionBar: some View {
         HStack(spacing: 12) {
-            Button("Open PAK/ZIP File\u{2026}") {
-                openFilePicker()
+            Button("Select File\u{2026}") {
+                selectFilePicker()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
-            .help("Choose a .pak or .zip file to inspect its contents")
+            .help("Select a .pak or .zip file \u{2014} ZIP files are opened automatically to find the PAK inside")
+
+            Button("Browse ZIP\u{2026}") {
+                browseZipPicker()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .help("Browse inside a ZIP archive to select a specific .pak file")
 
             if let url = sourceURL {
                 Image(systemName: url.pathExtension.lowercased() == "zip" ? "doc.zipper" : "doc.zipper")
@@ -364,11 +378,13 @@ struct PakInspectorView: View {
         .frame(minWidth: 400)
     }
 
-    // MARK: - File Picker
+    // MARK: - File Pickers
 
-    private func openFilePicker() {
+    /// Select a PAK or ZIP file as-is. ZIPs are auto-extracted to find the PAK inside.
+    private func selectFilePicker() {
         let panel = NSOpenPanel()
-        panel.title = "Open PAK or ZIP File"
+        panel.title = "Select PAK or ZIP File"
+        panel.prompt = "Select"
         panel.allowedContentTypes = [
             UTType(filenameExtension: "pak") ?? .data,
             UTType(filenameExtension: "zip") ?? .data,
@@ -379,6 +395,20 @@ struct PakInspectorView: View {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         handleSelectedFile(url)
+    }
+
+    /// Browse into a ZIP archive to pick a specific PAK file from inside it.
+    private func browseZipPicker() {
+        let panel = NSOpenPanel()
+        panel.title = "Browse ZIP for PAK File"
+        panel.allowedContentTypes = [UTType(filenameExtension: "pak") ?? .data]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.treatsFilePackagesAsDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        cleanupTempDir()
+        loadPak(url)
     }
 
     private func handleSelectedFile(_ url: URL) {
