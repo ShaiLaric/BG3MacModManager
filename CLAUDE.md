@@ -45,6 +45,8 @@ Tests/BG3MacModManagerTests/
 
 ## Workflow
 
+**Ask clarifying questions when uncertain.** If a prompt is ambiguous, has multiple possible interpretations, or you're unsure about the intended UX or behavior, ask the user before implementing. It is always better to clarify upfront than to implement the wrong thing and iterate.
+
 **Always update CLAUDE.md when finishing updates.** After implementing a backlog item or making significant changes, mark the item as done in the Backlog section and update any affected documentation (project structure, key patterns, etc.) before committing.
 
 **Before every `git push`, ask the user what version number to use** and update `CFBundleShortVersionString` in `Sources/BG3MacModManager/Info.plist` accordingly. Do not push without confirming the version.
