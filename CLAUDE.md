@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.2.0**.
+BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.2.1**.
 
 ## Build Environment
 
