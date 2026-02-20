@@ -17,7 +17,8 @@ let package = Package(
             dependencies: [
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
-            path: "Sources/BG3MacModManager"
+            path: "Sources/BG3MacModManager",
+            exclude: ["Info.plist"]
         ),
         .testTarget(
             name: "BG3MacModManagerTests",
