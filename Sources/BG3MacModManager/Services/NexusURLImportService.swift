@@ -135,7 +135,7 @@ final class NexusURLImportService {
         guard !lines.isEmpty else { return [] }
 
         var entries: [ParsedEntry] = []
-        let startIndex = looksLikeHeader(lines[0]) ? 1 : 0
+        let startIndex = looksLikeHeader(lines[0], separator: separator) ? 1 : 0
 
         for line in lines[startIndex...] {
             let fields = line.split(separator: separator, omittingEmptySubsequences: false)
@@ -324,7 +324,9 @@ final class NexusURLImportService {
     // MARK: - Helpers
 
     func isNexusURL(_ string: String) -> Bool {
-        string.lowercased().contains("nexusmods.com")
+        guard let components = URLComponents(string: string),
+              let host = components.host?.lowercased() else { return false }
+        return host == "nexusmods.com" || host.hasSuffix(".nexusmods.com")
     }
 
     /// Extract mod ID from a Nexus URL like
@@ -341,9 +343,14 @@ final class NexusURLImportService {
         return String(url[numRange])
     }
 
-    private func looksLikeHeader(_ line: String) -> Bool {
-        let lowered = line.lowercased()
-        return lowered.contains("name") || lowered.contains("url") ||
-               lowered.contains("uuid") || lowered.contains("mod")
+    private func looksLikeHeader(_ line: String, separator: Character) -> Bool {
+        let knownHeaderNames: Set<String> = [
+            "name", "mod", "mod_name", "mod name", "modname", "title",
+            "url", "nexus_url", "nexusurl", "nexus url", "nexus_link", "link",
+            "uuid", "id", "identifier", "mod_id",
+        ]
+        let fields = line.split(separator: separator, omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespaces).lowercased() }
+        return fields.contains { knownHeaderNames.contains($0) }
     }
 }

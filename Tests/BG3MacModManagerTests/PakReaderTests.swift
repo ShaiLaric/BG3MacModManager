@@ -66,8 +66,8 @@ final class PakReaderTests: XCTestCase {
         var data = Data([0x4C, 0x53, 0x50, 0x4B]) // "LSPK"
         // Version 99 as UInt32 little-endian
         data.append(contentsOf: [0x63, 0x00, 0x00, 0x00])
-        // Pad remaining header bytes (28 bytes)
-        data.append(Data(count: 28))
+        // Pad remaining header bytes (32 bytes to reach headerSize of 36)
+        data.append(Data(count: 32))
         let url = writeTempBinary(name: "bad_version.pak", data: data)
 
         XCTAssertThrowsError(try PakReader.listFiles(at: url)) { error in
@@ -88,7 +88,7 @@ final class PakReaderTests: XCTestCase {
         // Should fail on file list read, not on version check
         var data = Data([0x4C, 0x53, 0x50, 0x4B]) // "LSPK"
         data.append(contentsOf: [0x12, 0x00, 0x00, 0x00]) // version 18
-        data.append(Data(count: 28)) // rest of header zeroed
+        data.append(Data(count: 32)) // rest of header zeroed (4 + 32 = 36 = headerSize)
         let url = writeTempBinary(name: "v18.pak", data: data)
 
         XCTAssertThrowsError(try PakReader.listFiles(at: url)) { error in
@@ -131,7 +131,7 @@ final class PakReaderTests: XCTestCase {
     // MARK: - CompressionType Enum
 
     func testCompressionTypeNone() {
-        XCTAssertEqual(PakReader.CompressionType(rawValue: 0), .none)
+        XCTAssertEqual(PakReader.CompressionType(rawValue: 0), PakReader.CompressionType.none)
     }
 
     func testCompressionTypeZlib() {
