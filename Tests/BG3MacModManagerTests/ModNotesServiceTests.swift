@@ -6,10 +6,18 @@ import XCTest
 final class ModNotesServiceTests: XCTestCase {
 
     var service: ModNotesService!
+    private var tempURL: URL!
 
     override func setUp() {
         super.setUp()
-        service = ModNotesService()
+        tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ModNotesTests-\(UUID().uuidString).json")
+        service = ModNotesService(storageURL: tempURL)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: tempURL)
+        super.tearDown()
     }
 
     func testNoteForUnknownUUIDReturnsNil() {
@@ -63,5 +71,15 @@ final class ModNotesServiceTests: XCTestCase {
         service.setNote(nil, for: "uuid-a")
         XCTAssertNil(service.note(for: "uuid-a"))
         XCTAssertEqual(service.note(for: "uuid-b"), "Note B")
+    }
+
+    // MARK: - Persistence Round-Trip
+
+    func testNotesPersistAcrossInstances() {
+        service.setNote("Persisted note", for: "persist-uuid")
+
+        // Create a second instance reading from the same file
+        let service2 = ModNotesService(storageURL: tempURL)
+        XCTAssertEqual(service2.note(for: "persist-uuid"), "Persisted note")
     }
 }

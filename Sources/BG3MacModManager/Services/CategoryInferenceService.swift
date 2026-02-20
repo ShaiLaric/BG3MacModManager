@@ -45,16 +45,16 @@ final class CategoryInferenceService {
 
     private var userOverrides: [String: ModCategory] = [:]
 
-    private static var overridesURL: URL {
-        FileLocations.appSupportDirectory.appendingPathComponent("category_overrides.json")
-    }
+    private let overridesURL: URL
 
-    init() {
+    init(overridesURL: URL? = nil) {
+        self.overridesURL = overridesURL
+            ?? FileLocations.appSupportDirectory.appendingPathComponent("category_overrides.json")
         loadOverrides()
     }
 
     private func loadOverrides() {
-        guard let data = try? Data(contentsOf: Self.overridesURL),
+        guard let data = try? Data(contentsOf: overridesURL),
               let decoded = try? JSONDecoder().decode([String: ModCategory].self, from: data) else {
             return
         }
@@ -63,9 +63,9 @@ final class CategoryInferenceService {
 
     private func saveOverrides() {
         do {
-            try FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
+            try FileLocations.ensureDirectoryExists(overridesURL.deletingLastPathComponent())
             let data = try JSONEncoder().encode(userOverrides)
-            try data.write(to: Self.overridesURL, options: .atomic)
+            try data.write(to: overridesURL, options: .atomic)
         } catch {
             // Non-fatal: overrides just won't persist
         }

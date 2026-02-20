@@ -32,16 +32,16 @@ final class ModNotesService {
 
     private var notes: [String: String] = [:]
 
-    private static var storageURL: URL {
-        FileLocations.appSupportDirectory.appendingPathComponent("mod_notes.json")
-    }
+    private let storageURL: URL
 
-    init() {
+    init(storageURL: URL? = nil) {
+        self.storageURL = storageURL
+            ?? FileLocations.appSupportDirectory.appendingPathComponent("mod_notes.json")
         load()
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: Self.storageURL),
+        guard let data = try? Data(contentsOf: storageURL),
               let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
             return
         }
@@ -50,9 +50,9 @@ final class ModNotesService {
 
     private func save() {
         do {
-            try FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
+            try FileLocations.ensureDirectoryExists(storageURL.deletingLastPathComponent())
             let data = try JSONEncoder().encode(notes)
-            try data.write(to: Self.storageURL, options: .atomic)
+            try data.write(to: storageURL, options: .atomic)
         } catch {
             // Non-fatal: notes just won't persist
         }

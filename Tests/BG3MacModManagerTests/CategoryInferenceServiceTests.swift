@@ -6,11 +6,18 @@ import XCTest
 final class CategoryInferenceServiceTests: XCTestCase {
 
     var service: CategoryInferenceService!
+    private var tempURL: URL!
 
     override func setUp() {
         super.setUp()
-        // init() attempts to load overrides from disk; fails silently, starting with empty overrides.
-        service = CategoryInferenceService()
+        tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CategoryInferenceTests-\(UUID().uuidString).json")
+        service = CategoryInferenceService(overridesURL: tempURL)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: tempURL)
+        super.tearDown()
     }
 
     // MARK: - Tag Heuristics: Late Loader
@@ -196,5 +203,16 @@ final class CategoryInferenceServiceTests: XCTestCase {
 
         service.setOverride(.contentExtension, for: uuid)
         XCTAssertEqual(service.override(for: uuid), .contentExtension)
+    }
+
+    // MARK: - Persistence Round-Trip
+
+    func testOverridePersistsAcrossInstances() {
+        let uuid = "persist-test-uuid"
+        service.setOverride(.visual, for: uuid)
+
+        // Create a second instance reading from the same file
+        let service2 = CategoryInferenceService(overridesURL: tempURL)
+        XCTAssertEqual(service2.override(for: uuid), .visual)
     }
 }
