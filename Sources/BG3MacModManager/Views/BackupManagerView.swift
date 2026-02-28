@@ -48,7 +48,13 @@ struct BackupManagerView: View {
     private var backupList: some View {
         List {
             ForEach(appState.backups) { backup in
-                HStack {
+                HStack(spacing: 0) {
+                    // Age indicator strip
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(ageColor(for: backup))
+                        .frame(width: 3)
+                        .padding(.trailing, 8)
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text(backup.displayName)
                             .font(.headline)
@@ -77,25 +83,36 @@ struct BackupManagerView: View {
         }
     }
 
+    private func ageColor(for backup: BackupService.Backup) -> Color {
+        let days = Calendar.current.dateComponents([.day], from: backup.date, to: Date()).day ?? 0
+        if days <= 7 { return .green }
+        if days <= 30 { return .yellow }
+        return .red
+    }
+
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No Backups")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Text("Backups are created automatically when you save mod settings. You can also create manual backups.")
-                .font(.body)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 350)
-            Button("Create Backup Now") {
-                createBackup()
+            VStack(spacing: 12) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.secondary)
+                Text("No Backups")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                Text("Your saved mod configurations are backed up automatically so you can recover from crashes or unwanted changes.")
+                    .font(.body)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 350)
+                Button("Create Backup Now") {
+                    createBackup()
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Create a backup of modsettings.lsx")
             }
-            .buttonStyle(.borderedProminent)
-            .help("Create a backup of modsettings.lsx")
+            .padding(24)
+            .background(Color.bgSubtle, in: RoundedRectangle(cornerRadius: 12))
             Spacer()
         }
     }

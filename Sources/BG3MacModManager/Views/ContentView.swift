@@ -42,6 +42,7 @@ struct ContentView: View {
             .overlay {
                 dropTargetOverlay
             }
+            .animation(.easeOut(duration: 0.2), value: isDropTargeted)
             .onChange(of: appState.navigateToSidebarItem) { target in
                 if let target = target {
                     if target == "scriptExtender" {
@@ -61,6 +62,7 @@ struct ContentView: View {
             sidebar
         } detail: {
             detailView
+                .animation(.easeInOut(duration: 0.2), value: selectedSidebarItem)
         }
         .toolbar {
             toolbarContent
@@ -172,6 +174,7 @@ struct ContentView: View {
                 .padding()
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
+            .transition(.opacity.combined(with: .scale(scale: 0.9)))
             .allowsHitTesting(false)
         }
     }
@@ -179,9 +182,19 @@ struct ContentView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
-        List(SidebarItem.allCases, selection: $selectedSidebarItem) { item in
-            SidebarItemRow(item: item)
-                .tag(item)
+        List(selection: $selectedSidebarItem) {
+            Section("Management") {
+                SidebarItemRow(item: .mods).tag(SidebarItem.mods)
+                SidebarItemRow(item: .profiles).tag(SidebarItem.profiles)
+                SidebarItemRow(item: .backups).tag(SidebarItem.backups)
+            }
+            Section("Tools") {
+                SidebarItemRow(item: .scriptExtender).tag(SidebarItem.scriptExtender)
+                SidebarItemRow(item: .tools).tag(SidebarItem.tools)
+            }
+            Section("Support") {
+                SidebarItemRow(item: .help).tag(SidebarItem.help)
+            }
         }
         .listStyle(.sidebar)
         .frame(minWidth: 180)
@@ -259,6 +272,7 @@ struct ContentView: View {
             Text("\(appState.activeMods.count) active / \(appState.inactiveMods.count) inactive")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+                .contentTransition(.numericText())
                 .help("Total mod counts")
             if let se = appState.seStatus {
                 HStack(spacing: 4) {
@@ -333,6 +347,7 @@ struct SidebarItemRow: View {
     var body: some View {
         Label(item.rawValue, systemImage: item.icon)
             .badge(badgeCount)
+            .modifier(SymbolBounceModifier(trigger: item == .mods ? badgeCount : 0))
     }
 
     private var badgeCount: Int {

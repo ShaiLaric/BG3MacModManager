@@ -42,29 +42,39 @@ struct ModDetailView: View {
                 Divider()
 
                 // Metadata
-                metadataSection
+                DisclosureGroup("Metadata") {
+                    metadataSection
+                }
 
                 // Dependencies
                 if !mod.dependencies.isEmpty {
                     Divider()
-                    dependenciesSection
+                    DisclosureGroup("Dependencies") {
+                        dependenciesSection
+                    }
                 }
 
                 // Conflicts
                 if !mod.conflicts.isEmpty {
                     Divider()
-                    conflictsSection
+                    DisclosureGroup("Conflicts") {
+                        conflictsSection
+                    }
                 }
 
                 // Tags
                 if !mod.tags.isEmpty {
                     Divider()
-                    tagsSection
+                    DisclosureGroup("Tags") {
+                        tagsSection
+                    }
                 }
 
                 // File Info
                 Divider()
-                fileInfoSection
+                DisclosureGroup("File Info") {
+                    fileInfoSection
+                }
 
                 Spacer()
             }
@@ -297,7 +307,7 @@ struct ModDetailView: View {
                 TextEditor(text: $editingNoteText)
                     .font(.body)
                     .frame(minHeight: 60, maxHeight: 150)
-                    .border(Color.secondary.opacity(0.3), width: 1)
+                    .border(Color.borderMuted, width: 1)
 
                 HStack {
                     Spacer()
@@ -456,8 +466,8 @@ struct ModDetailView: View {
                     if entry.depth > 0 {
                         Text(String(repeating: "  ", count: entry.depth))
                             .font(.caption.monospaced())
-                        Text("└")
-                            .font(.caption.monospaced())
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
 
@@ -555,7 +565,7 @@ struct ModDetailView: View {
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                        .background(Color.bgTag, in: RoundedRectangle(cornerRadius: 4))
                 }
             }
         }
@@ -617,7 +627,7 @@ struct ModDetailView: View {
             ForEach(warnings) { warning in
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: warning.severity.icon)
-                        .foregroundStyle(colorForSeverity(warning.severity))
+                        .foregroundStyle(warning.severity.color)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(warning.message)
@@ -633,13 +643,6 @@ struct ModDetailView: View {
         }
     }
 
-    private func colorForSeverity(_ severity: ModWarning.Severity) -> Color {
-        switch severity {
-        case .critical: return .red
-        case .warning:  return .yellow
-        case .info:     return .blue
-        }
-    }
 
     // MARK: - Helpers
 

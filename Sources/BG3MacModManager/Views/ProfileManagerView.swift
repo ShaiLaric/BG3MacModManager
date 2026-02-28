@@ -86,9 +86,13 @@ struct ProfileManagerView: View {
                             Text(profile.name)
                                 .font(.headline)
                         }
-                        Text("\(profile.activeModUUIDs.count) mods")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Image(systemName: "puzzlepiece.extension")
+                                .font(.caption2)
+                            Text("\(profile.activeModUUIDs.count) mods")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         Text("Saved \(profile.updatedAt, style: .relative) ago")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
@@ -176,22 +180,26 @@ struct ProfileManagerView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "person.2")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No Saved Profiles")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Text("Save your current mod configuration as a profile to quickly switch between setups.")
-                .font(.body)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 350)
-            Button("Save Current Configuration...") {
-                showingSaveSheet = true
+            VStack(spacing: 12) {
+                Image(systemName: "person.2")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.secondary)
+                Text("No Saved Profiles")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                Text("Profiles store your active mods and their load order, letting you quickly switch between different mod setups.")
+                    .font(.body)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 350)
+                Button("Save Current Configuration...") {
+                    showingSaveSheet = true
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Save current mod configuration as a profile")
             }
-            .buttonStyle(.borderedProminent)
-            .help("Save current mod configuration as a profile")
+            .padding(24)
+            .background(Color.bgSubtle, in: RoundedRectangle(cornerRadius: 12))
             Spacer()
         }
     }

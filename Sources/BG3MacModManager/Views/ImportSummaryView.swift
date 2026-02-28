@@ -116,6 +116,6 @@ struct ImportSummaryView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .background(Color.statBoxBg, in: RoundedRectangle(cornerRadius: 6))
     }
 }

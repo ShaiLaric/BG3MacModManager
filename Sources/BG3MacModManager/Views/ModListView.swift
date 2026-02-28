@@ -113,7 +113,7 @@ struct ModListView: View {
                     Label("Save Load Order", systemImage: "arrow.down.doc.fill")
                     if appState.hasUnsavedChanges {
                         Circle()
-                            .fill(Color.white.opacity(0.9))
+                            .fill(Color.unsavedDot)
                             .frame(width: 6, height: 6)
                     }
                 }
@@ -212,7 +212,7 @@ struct ModListView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.accentColor.opacity(0.08))
+        .background(Color.bgSelected)
     }
 
     // MARK: - Warnings Banner
@@ -224,7 +224,7 @@ struct ModListView: View {
         return VStack(spacing: 0) {
             // Summary bar (always visible when warnings exist)
             Button {
-                withAnimation { warningsExpanded.toggle() }
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { warningsExpanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
                     if criticalCount > 0 {
@@ -251,7 +251,7 @@ struct ModListView: View {
                 .font(.caption)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(criticalCount > 0 ? Color.red.opacity(0.1) : Color.yellow.opacity(0.1))
+                .background(criticalCount > 0 ? Color.severityCriticalBg : Color.severityWarningBg)
             }
             .buttonStyle(.plain)
             .help("Show or hide validation warnings")
@@ -266,101 +266,142 @@ struct ModListView: View {
     }
 
     private var warningsDetailList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(appState.warnings) { warning in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: warning.severity.icon)
-                            .foregroundStyle(colorForSeverity(warning.severity))
+        let grouped = Dictionary(grouping: appState.warnings, by: \.category)
+        let sortedCategories = grouped.keys.sorted { a, b in
+            let maxA = grouped[a]!.max(by: { $0.severity < $1.severity })?.severity.rawValue ?? 0
+            let maxB = grouped[b]!.max(by: { $0.severity < $1.severity })?.severity.rawValue ?? 0
+            return maxA > maxB
+        }
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(warning.message)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                            if !warning.detail.isEmpty {
-                                Text(warning.detail)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(sortedCategories, id: \.self) { category in
+                    let warnings = grouped[category]!
+                    let maxSeverity = warnings.max(by: { $0.severity < $1.severity })?.severity ?? .info
+
+                    HStack(alignment: .top, spacing: 0) {
+                        // Left severity strip
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(maxSeverity.color)
+                            .frame(width: 3)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            // Category header
+                            HStack(spacing: 4) {
+                                Text(category.rawValue)
+                                    .font(.caption.bold())
+                                Text("(\(warnings.count))")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
-                                    .lineLimit(2)
+                            }
+                            .padding(.bottom, 2)
+
+                            ForEach(warnings) { warning in
+                                warningRow(warning)
                             }
                         }
-
-                        Spacer()
-
-                        if case .autoSort = warning.suggestedAction {
-                            Button("Auto-Sort") {
-                                appState.autoSortByDependencies()
-                            }
-                            .font(.caption2)
-                            .buttonStyle(.bordered)
-                            .help("Sort mods by dependency order")
-                        }
-
-                        if warning.category == .duplicateUUID {
-                            Button("Resolve...") {
-                                appState.detectDuplicateGroups()
-                            }
-                            .font(.caption2)
-                            .buttonStyle(.bordered)
-                            .help("Open duplicate mod resolver")
-                        }
-
-                        if warning.category == .conflictingMods,
-                           case .deactivateMod(let uuid) = warning.suggestedAction,
-                           let conflictMod = appState.activeMods.first(where: { $0.uuid == uuid }) {
-                            Button("Deactivate \(conflictMod.name)") {
-                                appState.deactivateMod(conflictMod)
-                            }
-                            .font(.caption2)
-                            .buttonStyle(.bordered)
-                            .help("Deactivate the conflicting mod to resolve this conflict. You can re-activate it later from the inactive list.")
-                        }
-
-                        if case .deleteModCrashSanityCheck = warning.suggestedAction {
-                            Button("Delete Folder") {
-                                appState.deleteModCrashSanityCheckIfNeeded()
-                            }
-                            .font(.caption2)
-                            .buttonStyle(.bordered)
-                            .help("Delete the ModCrashSanityCheck directory to prevent the game from deactivating your mods on launch")
-                        }
-
-                        if case .activateDependencies(let modUUID) = warning.suggestedAction {
-                            Button("Activate Deps") {
-                                if let mod = appState.activeMods.first(where: { $0.uuid == modUUID }) {
-                                    let count = appState.activateMissingDependencies(for: mod)
-                                    appState.statusMessage = "Activated \(count) missing dependency(ies)"
-                                }
-                            }
-                            .font(.caption2)
-                            .buttonStyle(.bordered)
-                            .help("Activate the missing dependencies from the inactive mod list")
-                        }
-
-                        if case .restoreModSettings = warning.suggestedAction {
-                            Button("Restore Backup") {
-                                Task { await appState.restoreFromLatestBackup() }
-                            }
-                            .font(.caption2)
-                            .buttonStyle(.bordered)
-                            .help("Restore modsettings.lsx from the most recent backup to recover your load order")
-                        }
-
-                        if case .viewSEStatus = warning.suggestedAction {
-                            Button("View SE Status") {
-                                appState.navigateToSidebarItem = "scriptExtender"
-                            }
-                            .font(.caption2)
-                            .buttonStyle(.bordered)
-                            .help("Open the Script Extender status page to check installation and re-deploy")
-                        }
+                        .padding(.leading, 8)
+                        .padding(.vertical, 4)
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
                 }
             }
         }
         .frame(maxHeight: 150)
+    }
+
+    private func warningRow(_ warning: ModWarning) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: warning.severity.icon)
+                .foregroundStyle(warning.severity.color)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(warning.message)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                if !warning.detail.isEmpty {
+                    Text(warning.detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            warningActionButton(warning)
+        }
+    }
+
+    @ViewBuilder
+    private func warningActionButton(_ warning: ModWarning) -> some View {
+        if case .autoSort = warning.suggestedAction {
+            Button("Auto-Sort") {
+                appState.autoSortByDependencies()
+            }
+            .font(.caption2)
+            .buttonStyle(.bordered)
+            .help("Sort mods by dependency order")
+        }
+
+        if warning.category == .duplicateUUID {
+            Button("Resolve...") {
+                appState.detectDuplicateGroups()
+            }
+            .font(.caption2)
+            .buttonStyle(.bordered)
+            .help("Open duplicate mod resolver")
+        }
+
+        if warning.category == .conflictingMods,
+           case .deactivateMod(let uuid) = warning.suggestedAction,
+           let conflictMod = appState.activeMods.first(where: { $0.uuid == uuid }) {
+            Button("Deactivate \(conflictMod.name)") {
+                appState.deactivateMod(conflictMod)
+            }
+            .font(.caption2)
+            .buttonStyle(.bordered)
+            .help("Deactivate the conflicting mod to resolve this conflict. You can re-activate it later from the inactive list.")
+        }
+
+        if case .deleteModCrashSanityCheck = warning.suggestedAction {
+            Button("Delete Folder") {
+                appState.deleteModCrashSanityCheckIfNeeded()
+            }
+            .font(.caption2)
+            .buttonStyle(.bordered)
+            .help("Delete the ModCrashSanityCheck directory to prevent the game from deactivating your mods on launch")
+        }
+
+        if case .activateDependencies(let modUUID) = warning.suggestedAction {
+            Button("Activate Deps") {
+                if let mod = appState.activeMods.first(where: { $0.uuid == modUUID }) {
+                    let count = appState.activateMissingDependencies(for: mod)
+                    appState.statusMessage = "Activated \(count) missing dependency(ies)"
+                }
+            }
+            .font(.caption2)
+            .buttonStyle(.bordered)
+            .help("Activate the missing dependencies from the inactive mod list")
+        }
+
+        if case .restoreModSettings = warning.suggestedAction {
+            Button("Restore Backup") {
+                Task { await appState.restoreFromLatestBackup() }
+            }
+            .font(.caption2)
+            .buttonStyle(.bordered)
+            .help("Restore modsettings.lsx from the most recent backup to recover your load order")
+        }
+
+        if case .viewSEStatus = warning.suggestedAction {
+            Button("View SE Status") {
+                appState.navigateToSidebarItem = "scriptExtender"
+            }
+            .font(.caption2)
+            .buttonStyle(.bordered)
+            .help("Open the Script Extender status page to check installation and re-deploy")
+        }
     }
 
     // MARK: - Active Mods
@@ -485,6 +526,7 @@ struct ModListView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: appState.activeMods.map(\.uuid))
         }
     }
 
@@ -589,6 +631,7 @@ struct ModListView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: appState.inactiveMods.map(\.uuid))
         }
     }
 
@@ -695,7 +738,7 @@ struct ModListView: View {
                                 .strokeBorder(
                                     selectedCategories.contains(category)
                                         ? category.color
-                                        : Color.secondary.opacity(0.3),
+                                        : Color.chipBorder,
                                     lineWidth: 1
                                 )
                         )
@@ -717,7 +760,7 @@ struct ModListView: View {
                     .padding(.vertical, 4)
                     .background(
                         showUncategorized
-                            ? Color.gray.opacity(0.15)
+                            ? Color.chipBgUncategorized
                             : Color.clear,
                         in: Capsule()
                     )
@@ -725,8 +768,8 @@ struct ModListView: View {
                         Capsule()
                             .strokeBorder(
                                 showUncategorized
-                                    ? Color.secondary.opacity(0.5)
-                                    : Color.secondary.opacity(0.3),
+                                    ? Color.chipBorderActive
+                                    : Color.chipBorder,
                                 lineWidth: 1
                             )
                     )
@@ -983,13 +1026,6 @@ struct ModListView: View {
 
     // MARK: - Helpers
 
-    private func colorForSeverity(_ severity: ModWarning.Severity) -> Color {
-        switch severity {
-        case .critical: return .red
-        case .warning:  return .yellow
-        case .info:     return .blue
-        }
-    }
 
     // MARK: - Drag Insert
 

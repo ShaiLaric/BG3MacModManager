@@ -32,7 +32,7 @@ struct SettingsView: View {
 
     private var generalSettings: some View {
         Form {
-            Section("Saving") {
+            GroupBox("Saving") {
                 Toggle("Lock modsettings.lsx after saving", isOn: $lockAfterSave)
                     .help("Prevents the game from overwriting your mod configuration")
 
@@ -48,7 +48,7 @@ struct SettingsView: View {
                     .help("Automatically save your load order to modsettings.lsx after loading a profile")
             }
 
-            Section("Backups") {
+            GroupBox("Backups") {
                 Picker("Keep backups for", selection: $backupRetentionDays) {
                     Text("7 days").tag(7)
                     Text("14 days").tag(14)
@@ -66,7 +66,7 @@ struct SettingsView: View {
                 .help("Delete backups older than the retention period")
             }
 
-            Section("Game") {
+            GroupBox("Game") {
                 HStack {
                     Text("Game Status:")
                     Text(appState.isGameInstalled ? "Installed" : "Not Found")
@@ -77,9 +77,13 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Nexus Mods") {
+            GroupBox("Nexus Mods") {
                 SecureField("API Key", text: $nexusAPIKey)
                     .help("Your personal Nexus Mods API key for checking mod updates")
+
+                Text("Your API key is stored locally and only used to query the Nexus Mods API for version information. It is never shared.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
 
                 if nexusAPIKey.isEmpty {
                     HStack(spacing: 4) {

@@ -7,6 +7,7 @@ struct ModRowView: View {
     let mod: ModInfo
     let isActive: Bool
     @EnvironmentObject var appState: AppState
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -15,7 +16,8 @@ struct ModRowView: View {
                 Text("\(index + 1)")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .frame(width: 24, alignment: .trailing)
+                    .frame(width: 22, height: 22)
+                    .background(Color.bgMuted, in: Circle())
                     .help("Load order position")
             }
 
@@ -92,26 +94,29 @@ struct ModRowView: View {
 
             Spacer()
 
-            // Note indicator
-            if appState.modNotesService.note(for: mod.uuid) != nil {
-                Image(systemName: "note.text")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .help("This mod has user notes")
-            }
+            // Status indicators
+            HStack(spacing: 6) {
+                // Note indicator
+                if appState.modNotesService.note(for: mod.uuid) != nil {
+                    Image(systemName: "note.text")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help("This mod has user notes")
+                }
 
-            // Inline dependency status indicator (for active mods with dependencies)
-            if isActive && !mod.dependencies.isEmpty && !mod.isBasicGameModule {
-                dependencyStatusIcon
-            }
+                // Inline dependency status indicator (for active mods with dependencies)
+                if isActive && !mod.dependencies.isEmpty && !mod.isBasicGameModule {
+                    dependencyStatusIcon
+                }
 
-            // Warnings (severity-aware)
-            let modWarnings = appState.warnings(for: mod)
-            if !modWarnings.isEmpty {
-                let maxSeverity = modWarnings.max(by: { $0.severity < $1.severity })?.severity ?? .info
-                Image(systemName: maxSeverity.icon)
-                    .foregroundStyle(colorForSeverity(maxSeverity))
-                    .help(modWarnings.map(\.message).joined(separator: "\n"))
+                // Warnings (severity-aware)
+                let modWarnings = appState.warnings(for: mod)
+                if !modWarnings.isEmpty {
+                    let maxSeverity = modWarnings.max(by: { $0.severity < $1.severity })?.severity ?? .info
+                    Image(systemName: maxSeverity.icon)
+                        .foregroundStyle(maxSeverity.color)
+                        .help(modWarnings.map(\.message).joined(separator: "\n"))
+                }
             }
 
             // Activate/Deactivate button
@@ -136,6 +141,10 @@ struct ModRowView: View {
             }
         }
         .padding(.vertical, 2)
+        .padding(.horizontal, 2)
+        .background(isHovered ? Color.bgSubtle : .clear, in: RoundedRectangle(cornerRadius: 4))
+        .onHover { isHovered = $0 }
+        .opacity(isActive || mod.isBasicGameModule ? 1.0 : 0.75)
     }
 
     /// Compact dependency health indicator for active mod rows.
@@ -161,11 +170,4 @@ struct ModRowView: View {
         }
     }
 
-    private func colorForSeverity(_ severity: ModWarning.Severity) -> Color {
-        switch severity {
-        case .critical: return .red
-        case .warning:  return .yellow
-        case .info:     return .blue
-        }
-    }
 }

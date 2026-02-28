@@ -66,12 +66,18 @@ struct PakInspectorView: View {
                 Spacer()
             } else {
                 Spacer()
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     Image(systemName: "doc.zipper")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
-                    Text("Select a PAK or ZIP file to inspect")
+                    Text("PAK Inspector")
+                        .font(.title3)
                         .foregroundStyle(.secondary)
+                    Text("Open a .pak or .zip archive to browse its file listing, view metadata, and inspect individual files.")
+                        .font(.body)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 400)
                     HStack(spacing: 8) {
                         Button("Select File\u{2026}") {
                             selectFilePicker()
@@ -85,6 +91,8 @@ struct PakInspectorView: View {
                         .help("Browse inside a ZIP archive to select a specific .pak file")
                     }
                 }
+                .padding(24)
+                .background(Color.bgSubtle, in: RoundedRectangle(cornerRadius: 12))
                 Spacer()
             }
         }
@@ -187,7 +195,7 @@ struct PakInspectorView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.primary.opacity(0.03))
+        .background(Color.bgSubtle)
     }
 
     private func headerBadge(_ label: String, _ value: String) -> some View {
@@ -259,7 +267,7 @@ struct PakInspectorView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.primary.opacity(0.03))
+        .background(Color.bgSubtle)
     }
 
     // MARK: - File List

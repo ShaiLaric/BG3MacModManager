@@ -105,7 +105,7 @@ struct SEStatusView: View {
             Text(code)
                 .font(.caption.monospaced())
                 .padding(6)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 4))
+                .background(Color.bgMuted, in: RoundedRectangle(cornerRadius: 4))
                 .textSelection(.enabled)
         }
     }
@@ -172,7 +172,7 @@ struct SEStatusView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxHeight: 300)
-                        .background(Color.primary.opacity(0.03))
+                        .background(Color.bgSubtle)
                         .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
                 }

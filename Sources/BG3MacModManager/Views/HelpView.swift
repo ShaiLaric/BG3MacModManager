@@ -848,7 +848,7 @@ struct HelpView: View {
             .font(.body.monospaced())
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+            .background(Color.bgMuted, in: RoundedRectangle(cornerRadius: 6))
             .textSelection(.enabled)
     }
 
@@ -863,7 +863,7 @@ struct HelpView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.yellow.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.severityWarningBg, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func helpBulletList(_ items: [String]) -> some View {
@@ -910,6 +910,6 @@ struct HelpView: View {
             }
         }
         .padding(8)
-        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.bgSubtle, in: RoundedRectangle(cornerRadius: 8))
     }
 }

@@ -84,7 +84,7 @@ struct DuplicateResolverView: View {
                     }
                     .padding(.vertical, 4)
                     .padding(.horizontal, 8)
-                    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 4))
+                    .background(Color.bgSubtle, in: RoundedRectangle(cornerRadius: 4))
                 }
             }
             .padding(4)
