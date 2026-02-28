@@ -52,6 +52,7 @@ struct ModDetailView: View {
                     DisclosureGroup("Dependencies") {
                         dependenciesSection
                     }
+                    .help("Mods that must be active and loaded before this mod for it to work correctly")
                 }
 
                 // Conflicts
@@ -60,6 +61,7 @@ struct ModDetailView: View {
                     DisclosureGroup("Conflicts") {
                         conflictsSection
                     }
+                    .help("Conflicts declared by this mod in its meta.lsx metadata. If a conflicting mod is also active, it may cause issues in-game.")
                 }
 
                 // Tags
@@ -390,18 +392,13 @@ struct ModDetailView: View {
 
     private var dependenciesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Dependencies")
-                    .font(.headline)
-                    .help("Mods that must be active and loaded before this mod for it to work correctly")
-
-                Spacer()
-
-                let missing = appState.missingDependencies(for: mod)
-                let activatable = missing.filter { dep in
-                    appState.inactiveMods.contains(where: { $0.uuid == dep.uuid })
-                }
-                if !activatable.isEmpty {
+            let missing = appState.missingDependencies(for: mod)
+            let activatable = missing.filter { dep in
+                appState.inactiveMods.contains(where: { $0.uuid == dep.uuid })
+            }
+            if !activatable.isEmpty {
+                HStack {
+                    Spacer()
                     Button("Activate Missing") {
                         let count = appState.activateMissingDependencies(for: mod)
                         appState.statusMessage = "Activated \(count) missing dependency(ies)"
@@ -503,10 +500,6 @@ struct ModDetailView: View {
 
     private var conflictsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Declared Conflicts")
-                .font(.headline)
-                .help("Conflicts declared by this mod in its meta.lsx metadata. If a conflicting mod is also active, it may cause issues in-game.")
-
             let activeUUIDs = Set(appState.activeMods.map(\.uuid))
 
             ForEach(mod.conflicts) { conflict in
@@ -556,9 +549,6 @@ struct ModDetailView: View {
 
     private var tagsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Tags")
-                .font(.headline)
-
             FlowLayout(spacing: 6) {
                 ForEach(mod.tags, id: \.self) { tag in
                     Text(tag)
@@ -575,9 +565,6 @@ struct ModDetailView: View {
 
     private var fileInfoSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("File Info")
-                .font(.headline)
-
             if let fileName = mod.pakFileName {
                 detailRow("File", fileName, copyable: true)
             }

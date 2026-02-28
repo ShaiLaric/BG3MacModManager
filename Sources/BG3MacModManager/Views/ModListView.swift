@@ -526,7 +526,6 @@ struct ModListView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: appState.activeMods.map(\.uuid))
         }
     }
 
@@ -631,7 +630,6 @@ struct ModListView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: appState.inactiveMods.map(\.uuid))
         }
     }
 
