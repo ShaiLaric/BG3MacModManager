@@ -188,7 +188,6 @@ struct HelpView: View {
 
             helpHeading("Activating & Deactivating")
             helpBulletList([
-                "Double-click a mod row to toggle it between active and inactive",
                 "Right-click a mod and choose Activate or Deactivate",
                 "Click the +/- button on the right side of a mod row",
                 "Drag an inactive mod onto the Active Mods list to activate it at a specific position in the load order",
@@ -760,7 +759,6 @@ struct HelpView: View {
                 ("Cmd+?", "Open Help"),
                 ("Cmd+Click", "Add/remove from multi-selection"),
                 ("Shift+Click", "Extend selection range"),
-                ("Double-Click", "Toggle mod active/inactive"),
             ])
         }
     }

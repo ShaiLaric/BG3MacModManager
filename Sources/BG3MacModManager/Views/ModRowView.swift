@@ -7,8 +7,6 @@ struct ModRowView: View {
     let mod: ModInfo
     let isActive: Bool
     @EnvironmentObject var appState: AppState
-    @State private var isHovered = false
-
     var body: some View {
         HStack(spacing: 10) {
             // Load order number (for active mods)
@@ -142,8 +140,6 @@ struct ModRowView: View {
         }
         .padding(.vertical, 2)
         .padding(.horizontal, 2)
-        .background(isHovered ? Color.bgSubtle : .clear, in: RoundedRectangle(cornerRadius: 4))
-        .onHover { isHovered = $0 }
         .opacity(isActive || mod.isBasicGameModule ? 1.0 : 0.75)
     }
 
