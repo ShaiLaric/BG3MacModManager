@@ -583,7 +583,6 @@ final class AppState: ObservableObject {
         isImporting = true
         defer { isImporting = false }
 
-        let preImportUUIDs = Set((activeMods + inactiveMods).map(\.uuid))
         var totalDuplicates: [String] = []
         var importedCount = 0
 
@@ -618,11 +617,33 @@ final class AppState: ObservableObject {
 
         guard importedCount > 0 else { return }
 
-        await refreshMods()
+        // Capture the latest UI state after file work finishes in case an archive import yielded.
+        let currentActiveMods = activeMods
+        let currentInactiveMods = inactiveMods
+        let currentHasUnsavedChanges = hasUnsavedChanges
 
-        // Identify newly appeared mods
-        let allModsNow = activeMods + inactiveMods
-        let newMods = allModsNow.filter { !preImportUUIDs.contains($0.uuid) }
+        let newMods: [ModInfo]
+        do {
+            // Importing changes the files on disk, but it must not reload activation state from
+            // modsettings.lsx: the in-memory load order may contain unsaved user changes.
+            let discoveredMods = try discoveryService.discoverMods()
+            let merged = ImportDiscoveryMerger.merge(
+                previousActive: currentActiveMods,
+                previousInactive: currentInactiveMods,
+                hadUnsavedChanges: currentHasUnsavedChanges,
+                discovered: discoveredMods
+            )
+            activeMods = merged.active.map { inferCategory(for: $0) }
+            inactiveMods = merged.inactive.map { inferCategory(for: $0) }
+            hasUnsavedChanges = merged.hasUnsavedChanges
+
+            let newUUIDs = Set(merged.newMods.map(\.uuid))
+            newMods = inactiveMods.filter { newUUIDs.contains($0.uuid) }
+            runValidation()
+        } catch {
+            showError(error)
+            return
+        }
 
         if !totalDuplicates.isEmpty {
             statusMessage = "Imported \(importedCount) file(s) (replaced \(totalDuplicates.count) existing)"
@@ -1506,6 +1527,66 @@ final class AppState: ObservableObject {
         errorMessage = error.localizedDescription
         showError = true
         statusMessage = "Error: \(error.localizedDescription)"
+    }
+}
+
+// MARK: - Import Discovery Merge
+
+/// Merges a post-import disk scan into the current in-memory load order.
+///
+/// Existing activation choices and active ordering are authoritative because they may not have
+/// been saved to modsettings.lsx yet. Newly discovered mods always start inactive.
+enum ImportDiscoveryMerger {
+    struct Result {
+        let active: [ModInfo]
+        let inactive: [ModInfo]
+        let newMods: [ModInfo]
+        let hasUnsavedChanges: Bool
+    }
+
+    static func merge(
+        previousActive: [ModInfo],
+        previousInactive: [ModInfo],
+        hadUnsavedChanges: Bool,
+        discovered: [ModInfo]
+    ) -> Result {
+        let previouslyKnownUUIDs = Set((previousActive + previousInactive).map(\.uuid))
+        let discoveredByUUID = Dictionary(
+            discovered.map { ($0.uuid, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var accountedUUIDs = Set<String>()
+
+        let active = previousActive.compactMap { previousMod -> ModInfo? in
+            guard accountedUUIDs.insert(previousMod.uuid).inserted else { return nil }
+            // Keep an active entry even if its PAK is temporarily missing; importing another mod
+            // should never silently remove or deactivate the user's current load-order entries.
+            return discoveredByUUID[previousMod.uuid] ?? previousMod
+        }
+
+        var inactive = previousInactive.compactMap { previousMod -> ModInfo? in
+            guard !accountedUUIDs.contains(previousMod.uuid),
+                  let discoveredMod = discoveredByUUID[previousMod.uuid]
+            else { return nil }
+            accountedUUIDs.insert(previousMod.uuid)
+            return discoveredMod
+        }
+
+        var newMods: [ModInfo] = []
+        for mod in discovered where !previouslyKnownUUIDs.contains(mod.uuid) {
+            guard accountedUUIDs.insert(mod.uuid).inserted else { continue }
+            newMods.append(mod)
+        }
+        newMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        inactive.append(contentsOf: newMods)
+
+        return Result(
+            active: active,
+            inactive: inactive,
+            newMods: newMods,
+            hasUnsavedChanges: hadUnsavedChanges
+        )
     }
 }
 
