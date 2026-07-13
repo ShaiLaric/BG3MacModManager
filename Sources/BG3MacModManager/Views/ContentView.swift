@@ -11,7 +11,10 @@ struct ContentView: View {
     enum SidebarItem: String, CaseIterable, Identifiable {
         case mods = "Mods"
         case profiles = "Profiles"
+        case saves = "Save Games"
         case backups = "Backups"
+        case readiness = "Launch Readiness"
+        case updates = "Mod Updates"
         case scriptExtender = "Script Extender"
         case tools = "Tools"
         case help = "Help"
@@ -22,7 +25,10 @@ struct ContentView: View {
             switch self {
             case .mods: return "puzzlepiece.extension"
             case .profiles: return "person.2"
+            case .saves: return "gamecontroller"
             case .backups: return "clock.arrow.circlepath"
+            case .readiness: return "checkmark.shield"
+            case .updates: return "arrow.down.circle"
             case .scriptExtender: return "terminal"
             case .tools: return "wrench.and.screwdriver"
             case .help: return "questionmark.circle"
@@ -49,6 +55,14 @@ struct ContentView: View {
                         selectedSidebarItem = .scriptExtender
                     } else if target == "help" {
                         selectedSidebarItem = .help
+                    } else if target == "readiness" {
+                        selectedSidebarItem = .readiness
+                    } else if target == "mods" {
+                        selectedSidebarItem = .mods
+                    } else if target == "saves" {
+                        selectedSidebarItem = .saves
+                    } else if target == "updates" {
+                        selectedSidebarItem = .updates
                     }
                     appState.navigateToSidebarItem = nil
                 }
@@ -97,6 +111,10 @@ struct ContentView: View {
             ImportSummaryView()
                 .environmentObject(appState)
         }
+        .sheet(isPresented: $appState.showLaunchReadinessBeforeLaunch) {
+            LaunchReadinessPreflightView()
+                .environmentObject(appState)
+        }
         .alert(
             "External modsettings.lsx Change Detected",
             isPresented: $appState.showExternalChangeAlert
@@ -136,6 +154,23 @@ struct ContentView: View {
             ) { urls in
                 Task { await appState.importMods(from: urls) }
             }
+        }
+        .sheet(isPresented: $appState.showModUpdatePicker) {
+            ModFilePickerView(
+                title: "Select Update Archive",
+                prompt: "Inspect",
+                allowedExtensions: ["pak", "zip", "tar", "gz", "tgz", "bz2", "xz"],
+                allowsMultipleSelection: false
+            ) { urls in
+                appState.showModUpdatePicker = false
+                if let url = urls.first {
+                    Task { await appState.inspectModUpdate(sourceURL: url) }
+                }
+            }
+        }
+        .sheet(item: $appState.pendingModUpdatePlan) { plan in
+            ModUpdatePlanView(plan: plan)
+                .environmentObject(appState)
         }
         .confirmationDialog(
             "Permanently Delete Mod\(appState.modsToDelete.count == 1 ? "" : "s")?",
@@ -186,7 +221,10 @@ struct ContentView: View {
             Section("Management") {
                 SidebarItemRow(item: .mods).tag(SidebarItem.mods)
                 SidebarItemRow(item: .profiles).tag(SidebarItem.profiles)
+                SidebarItemRow(item: .saves).tag(SidebarItem.saves)
                 SidebarItemRow(item: .backups).tag(SidebarItem.backups)
+                SidebarItemRow(item: .readiness).tag(SidebarItem.readiness)
+                SidebarItemRow(item: .updates).tag(SidebarItem.updates)
             }
             Section("Tools") {
                 SidebarItemRow(item: .scriptExtender).tag(SidebarItem.scriptExtender)
@@ -209,8 +247,14 @@ struct ContentView: View {
             ModListView()
         case .profiles:
             ProfileManagerView()
+        case .saves:
+            SaveBrowserView()
         case .backups:
             BackupManagerView()
+        case .readiness:
+            LaunchReadinessView()
+        case .updates:
+            ModUpdatesView()
         case .scriptExtender:
             SEStatusView()
         case .tools:
@@ -375,8 +419,14 @@ struct SidebarItemRow: View {
             return appState.warnings.filter { $0.severity == .critical || $0.severity == .warning }.count
         case .profiles:
             return appState.profiles.count
+        case .saves:
+            return appState.saveProfileAssociations.count
         case .backups:
             return appState.backups.count
+        case .readiness:
+            return appState.readinessReport?.criticalFindings.count ?? 0
+        case .updates:
+            return appState.nexusUpdateResults.values.filter { $0.hasUpdate || $0.versionDiffers }.count
         default:
             return 0
         }

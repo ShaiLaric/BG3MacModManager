@@ -3,7 +3,7 @@
 import Foundation
 
 /// Represents a detected issue with the mod configuration.
-struct ModWarning: Identifiable, Equatable {
+struct ModWarning: Identifiable, Equatable, Sendable {
     let id: UUID
     let severity: Severity
     let category: Category
@@ -33,7 +33,7 @@ struct ModWarning: Identifiable, Equatable {
         lhs.id == rhs.id
     }
 
-    enum Severity: Int, Comparable, CaseIterable {
+    enum Severity: Int, Comparable, CaseIterable, Sendable {
         case info = 1        // Informational
         case warning = 2     // May cause issues
         case critical = 3    // Will crash the game
@@ -51,7 +51,7 @@ struct ModWarning: Identifiable, Equatable {
         }
     }
 
-    enum Category: String, CaseIterable {
+    enum Category: String, CaseIterable, Sendable {
         case duplicateUUID          = "Duplicate UUID"
         case missingDependency      = "Missing Dependency"
         case wrongLoadOrder         = "Wrong Load Order"
@@ -63,9 +63,10 @@ struct ModWarning: Identifiable, Equatable {
         case modCrashSanityCheck    = "ModCrashSanityCheck"
         case externalModSettingsChange = "External modsettings.lsx Change"
         case seDisappeared             = "Script Extender Disappeared"
+        case loadOrderRule             = "Load Order Rule"
     }
 
-    enum SuggestedAction: Equatable {
+    enum SuggestedAction: Equatable, Sendable {
         case autoSort
         case deactivateMod(uuid: String)
         case installDependency(name: String)

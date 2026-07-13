@@ -13,7 +13,8 @@ final class ModValidationService {
         activeMods: [ModInfo],
         inactiveMods: [ModInfo],
         seStatus: ScriptExtenderService.SEStatus?,
-        seWasPreviouslyDeployed: Bool = false
+        seWasPreviouslyDeployed: Bool = false,
+        loadOrderRules: [LoadOrderRule] = []
     ) -> [ModWarning] {
         var warnings: [ModWarning] = []
 
@@ -27,6 +28,10 @@ final class ModValidationService {
         warnings.append(contentsOf: checkNoMetadataMods(activeMods: activeMods, inactiveMods: inactiveMods))
         warnings.append(contentsOf: checkModCrashSanityCheck())
         warnings.append(contentsOf: checkSEDisappeared(seStatus: seStatus, wasPreviouslyDeployed: seWasPreviouslyDeployed))
+        warnings.append(contentsOf: checkLoadOrderRules(
+            activeMods: activeMods,
+            rules: loadOrderRules
+        ))
 
         return warnings.sorted { $0.severity > $1.severity }
     }
@@ -36,13 +41,15 @@ final class ModValidationService {
         activeMods: [ModInfo],
         inactiveMods: [ModInfo],
         seStatus: ScriptExtenderService.SEStatus?,
-        seWasPreviouslyDeployed: Bool = false
+        seWasPreviouslyDeployed: Bool = false,
+        loadOrderRules: [LoadOrderRule] = []
     ) -> [ModWarning] {
         return validate(
             activeMods: activeMods,
             inactiveMods: inactiveMods,
             seStatus: seStatus,
-            seWasPreviouslyDeployed: seWasPreviouslyDeployed
+            seWasPreviouslyDeployed: seWasPreviouslyDeployed,
+            loadOrderRules: loadOrderRules
         ).filter { $0.severity >= .warning }
     }
 
@@ -51,45 +58,26 @@ final class ModValidationService {
     /// Sort mods based on their dependency graph using Kahn's algorithm.
     /// Returns nil if a circular dependency is detected.
     func topologicalSort(mods: [ModInfo]) -> [ModInfo]? {
-        let modsByUUID = Dictionary(mods.map { ($0.uuid, $0) }, uniquingKeysWith: { first, _ in first })
-        let activeUUIDs = Set(mods.map(\.uuid))
-
-        // inDegree[uuid] = number of dependencies that are also in the active set
-        var inDegree: [String: Int] = [:]
-        var dependents: [String: [String]] = [:]  // uuid -> mods that depend on it
-
-        for mod in mods {
-            let relevantDeps = mod.dependencies.filter { activeUUIDs.contains($0.uuid) }
-            inDegree[mod.uuid] = relevantDeps.count
-
-            for dep in relevantDeps {
-                dependents[dep.uuid, default: []].append(mod.uuid)
-            }
+        switch LoadOrderSolver().solve(mods: mods, mode: .dependenciesOnly) {
+        case .ordered(let sorted): return sorted
+        case .conflict: return nil
         }
+    }
 
-        // Start with mods that have no in-active-set dependencies
-        var queue: [String] = mods
-            .filter { (inDegree[$0.uuid] ?? 0) == 0 }
-            .map(\.uuid)
-        var sorted: [ModInfo] = []
-
-        while !queue.isEmpty {
-            let uuid = queue.removeFirst()
-            if let mod = modsByUUID[uuid] {
-                sorted.append(mod)
-            }
-
-            for dependent in dependents[uuid] ?? [] {
-                inDegree[dependent, default: 0] -= 1
-                if inDegree[dependent] == 0 {
-                    queue.append(dependent)
-                }
-            }
+    private func checkLoadOrderRules(
+        activeMods: [ModInfo],
+        rules: [LoadOrderRule]
+    ) -> [ModWarning] {
+        LoadOrderSolver.violations(mods: activeMods, rules: rules).map { violation in
+            ModWarning(
+                severity: .warning,
+                category: .loadOrderRule,
+                message: "Load-order rule is not satisfied",
+                detail: violation.message,
+                affectedModUUIDs: violation.affectedModUUIDs,
+                suggestedAction: .autoSort
+            )
         }
-
-        // If sorted count != mods count, there is a cycle
-        guard sorted.count == mods.count else { return nil }
-        return sorted
     }
 
     // MARK: - Individual Checks

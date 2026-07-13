@@ -105,6 +105,22 @@ enum FileLocations {
         appSupportDirectory.appendingPathComponent("Profiles")
     }
 
+    static var loadOrderRulesFile: URL {
+        appSupportDirectory.appendingPathComponent("load_order_rules.json")
+    }
+
+    static var saveProfileAssociationsFile: URL {
+        appSupportDirectory.appendingPathComponent("save_profile_associations.json")
+    }
+
+    static var modUpdateHistoryFile: URL {
+        appSupportDirectory.appendingPathComponent("mod_update_history.json")
+    }
+
+    static var modUpdateBackupsDirectory: URL {
+        appSupportDirectory.appendingPathComponent("ModUpdateBackups")
+    }
+
     /// Stores a SHA-256 hash of modsettings.lsx as it was last written by this app.
     static var lastExportHashFile: URL {
         appSupportDirectory.appendingPathComponent("last_export_hash")

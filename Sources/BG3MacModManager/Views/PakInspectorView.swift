@@ -628,6 +628,8 @@ struct PakInspectorView: View {
         case .none: return "None"
         case .zlib: return "Zlib"
         case .lz4:  return "LZ4"
+        case .zstd: return "Zstandard"
+        case .unknown: return "Unknown"
         }
     }
 }

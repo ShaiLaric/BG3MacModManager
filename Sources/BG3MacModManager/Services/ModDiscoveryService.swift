@@ -61,6 +61,8 @@ struct ModDiscoveryService: Sendable {
         let physicalMods = try discoverMods()
         let canonical = canonicalized(physicalMods)
         let allMods = canonical.mods
+        let requiredGameModules = allMods.filter(\.isBasicGameModule)
+        let userMods = allMods.filter { !$0.isBasicGameModule }
 
         // Read current modsettings.lsx
         let currentSettings: ModSettingsService.ModSettings?
@@ -71,17 +73,17 @@ struct ModDiscoveryService: Sendable {
         }
 
         guard let settings = currentSettings else {
-            // No modsettings.lsx: all mods are inactive
+            // Required game components are implicitly loaded even without modsettings.lsx.
             return DiscoveryState(
-                active: [],
-                inactive: allMods,
+                active: requiredGameModules,
+                inactive: userMods,
                 duplicateGroups: canonical.duplicateGroups
             )
         }
 
-        var active: [ModInfo] = []
+        var active = requiredGameModules
         var inactiveByUUID = Dictionary(
-            uniqueKeysWithValues: allMods.map { (ModIdentity.comparisonKey($0.uuid), $0) }
+            uniqueKeysWithValues: userMods.map { (ModIdentity.comparisonKey($0.uuid), $0) }
         )
 
         // Build active list in the order defined by ModOrder
@@ -115,7 +117,7 @@ struct ModDiscoveryService: Sendable {
             }
         }
 
-        let inactive = allMods.filter {
+        let inactive = userMods.filter {
             inactiveByUUID[ModIdentity.comparisonKey($0.uuid)] != nil
         }
 

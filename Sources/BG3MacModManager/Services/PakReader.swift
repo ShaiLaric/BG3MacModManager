@@ -2,6 +2,7 @@
 
 import Foundation
 import Compression
+import ZSTD
 
 /// Reads Larian LSPK v18 `.pak` archive files to extract mod metadata.
 ///
@@ -22,6 +23,7 @@ final class PakReader {
         case unsafePath(String)
         case limitExceeded(String)
         case unsupportedArchivePart(UInt8)
+        case unsupportedCompression(UInt8)
 
         var errorDescription: String? {
             switch self {
@@ -35,6 +37,8 @@ final class PakReader {
             case .limitExceeded(let msg): return "Archive safety limit exceeded: \(msg)"
             case .unsupportedArchivePart(let part):
                 return "Split PAK archive part \(part) is not supported"
+            case .unsupportedCompression(let method):
+                return "Unsupported PAK compression method: \(method)"
             }
         }
     }
@@ -80,7 +84,7 @@ final class PakReader {
         var id: String { name }
 
         var compressionMethod: CompressionType {
-            CompressionType(rawValue: flags & 0x0F) ?? .none
+            CompressionType(rawValue: flags & 0x0F) ?? .unknown
         }
 
         /// Some valid legacy PAK writers encode an uncompressed entry with a zero
@@ -98,6 +102,8 @@ final class PakReader {
         case none = 0
         case zlib = 1
         case lz4  = 2
+        case zstd = 3
+        case unknown = 255
     }
 
     // MARK: - Constants
@@ -468,11 +474,11 @@ final class PakReader {
             throw PakError.readError("Could not read file data for \(entry.name)")
         }
 
-        if entry.sizeOnDisk == entry.uncompressedSize {
+        if entry.compressionMethod == .none,
+           entry.sizeOnDisk == entry.uncompressedSize {
             return compressedData
         }
 
-        let algorithm: compression_algorithm
         switch entry.compressionMethod {
         case .none:
             // Older tools commonly write raw entries with an expanded size of zero.
@@ -482,20 +488,25 @@ final class PakReader {
             }
             return compressedData
         case .zlib:
-            algorithm = COMPRESSION_ZLIB
+            return try decompressApple(
+                compressedData,
+                expectedSize: Int(entry.uncompressedSize),
+                algorithm: COMPRESSION_ZLIB
+            )
         case .lz4:
-            algorithm = header.isSolid ? COMPRESSION_LZ4 : COMPRESSION_LZ4_RAW
+            return try decompressApple(
+                compressedData,
+                expectedSize: Int(entry.uncompressedSize),
+                algorithm: header.isSolid ? COMPRESSION_LZ4 : COMPRESSION_LZ4_RAW
+            )
+        case .zstd:
+            return try decompressZstandard(
+                compressedData,
+                expectedSize: Int(entry.uncompressedSize)
+            )
+        case .unknown:
+            throw PakError.unsupportedCompression(entry.flags & 0x0F)
         }
-
-        guard let decompressed = decompress(
-            compressedData,
-            expectedSize: Int(entry.uncompressedSize),
-            algorithm: algorithm
-        ), decompressed.count == Int(entry.uncompressedSize) else {
-            throw PakError.decompressionFailed
-        }
-
-        return decompressed
     }
 
     // MARK: - Helpers
@@ -556,6 +567,50 @@ final class PakReader {
         guard result == expectedSize else { return nil }
         decompressed.count = result
         return decompressed
+    }
+
+    private static func decompressApple(
+        _ data: Data,
+        expectedSize: Int,
+        algorithm: compression_algorithm
+    ) throws -> Data {
+        guard let result = decompress(data, expectedSize: expectedSize, algorithm: algorithm),
+              result.count == expectedSize else {
+            throw PakError.decompressionFailed
+        }
+        return result
+    }
+
+    /// Zstandard's frame header can advertise an arbitrary output size. Stream into a
+    /// writer capped at the PAK entry's already-validated expanded size instead of
+    /// allowing the frame to determine an allocation.
+    private static func decompressZstandard(_ data: Data, expectedSize: Int) throws -> Data {
+        guard expectedSize > 0 else { throw PakError.decompressionFailed }
+        let reader = BufferedMemoryStream(startData: data)
+        let writer = BoundedDataWriteStream(maximumBytes: expectedSize)
+        do {
+            try ZSTD.decompress(reader: reader, writer: writer, config: .zstd)
+        } catch {
+            throw PakError.decompressionFailed
+        }
+        guard writer.data.count == expectedSize else { throw PakError.decompressionFailed }
+        return writer.data
+    }
+}
+
+private final class BoundedDataWriteStream: WriteableStream {
+    private let maximumBytes: Int
+    private(set) var data = Data()
+
+    init(maximumBytes: Int) {
+        self.maximumBytes = maximumBytes
+        data.reserveCapacity(maximumBytes)
+    }
+
+    func write(_ bytes: UnsafePointer<UInt8>, length: Int) -> Int {
+        guard length >= 0, data.count <= maximumBytes - length else { return 0 }
+        data.append(bytes, count: length)
+        return length
     }
 }
 

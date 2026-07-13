@@ -136,7 +136,10 @@ struct HelpView: View {
             helpBulletList([
                 "Mods — Main view for managing active and inactive mods",
                 "Profiles — Save and load named mod configurations",
+                "Save Games — Associate campaigns or individual saves with profiles and prepare them explicitly",
                 "Backups — View and restore modsettings.lsx backups",
+                "Launch Readiness — Run a point-in-time preflight and repair actionable findings",
+                "Mod Updates — Review Nexus version information, transactional update history, and rollback backups",
                 "Script Extender — Check bg3se-macos installation status",
                 "Tools — Version number converter and PAK/ZIP file inspector",
                 "Help — This documentation",
@@ -300,8 +303,8 @@ struct HelpView: View {
             helpHeading("Smart Sort")
             helpText("""
             Click the Smart Sort button to automatically arrange mods using the BG3 community's \
-            5-tier load order convention. Mods are grouped into tiers, then sorted by dependencies \
-            within each tier:
+            5-tier load order convention. Dependencies and persistent user rules are hard constraints \
+            across the entire order; category tiers choose between otherwise eligible mods:
             """)
             helpNumberedList([
                 "Framework — Libraries and APIs (e.g., Mod Fixer, Compatibility Framework)",
@@ -321,6 +324,15 @@ struct HelpView: View {
             helpText("""
             Use the overflow menu and choose \"Sort by Dependencies Only\" for a pure topological \
             sort based on declared mod dependencies, without considering category tiers.
+            """)
+
+            helpHeading("Persistent Load-Order Rules")
+            helpText("""
+            A mod's context menu and detail panel can create “Always Before,” “Always After,” exact \
+            position, first, or last rules. Rules survive refreshes and profile loads. “Manage Rules” \
+            lets you disable or delete them; dormant rules are retained when a referenced mod is not \
+            installed. If rules, dependencies, or pins conflict, sorting leaves the current order \
+            unchanged and explains the conflict.
             """)
 
             helpHeading("Activate Missing Dependencies")
@@ -429,6 +441,13 @@ struct HelpView: View {
                 "Profiles are stored in ~/Library/Application Support/BG3MacModManager/Profiles/",
             ])
 
+            helpHeading("Save Associations")
+            helpText("""
+            The Save Games view can associate a whole campaign with a profile, or give an individual \
+            save its own override. “Prepare to Play” loads the associated profile and opens Launch \
+            Readiness; the app never switches profiles just because a save file changed.
+            """)
+
             helpHeading("Exporting Load Order as Text")
             helpText("""
             From the Profiles view, use the \"Export List\" menu to export your current load \
@@ -462,6 +481,15 @@ struct HelpView: View {
             When importing archives (.zip, .tar, etc.), the app automatically extracts all .pak \
             files and their companion info.json files into the Mods folder. After import, you are \
             prompted to activate the newly imported mods.
+            """)
+
+            helpHeading("Updating an Installed Mod")
+            helpText("""
+            From a mod's detail view or Mod Updates, download the desired Nexus file in your browser, \
+            then choose “Update from Archive.” The candidate must contain one metadata-backed PAK \
+            whose UUID matches the installed mod. The app creates a durable backup, commits and verifies \
+            the replacement, and offers “Restore Previous” in Update History. Direct Nexus downloads \
+            remain disabled until registered-app authentication is available.
             """)
 
             helpHeading("Importing Load Orders")
@@ -618,6 +646,14 @@ struct HelpView: View {
             helpText("""
             When saving with critical warnings, the app shows a confirmation dialog listing \
             the issues. You can choose to save anyway or cancel and fix the issues first.
+            """)
+
+            helpHeading("Launch Readiness")
+            helpText("""
+            Launch Readiness combines validation with PAK readability, unsaved/external settings, \
+            game and Script Extender status, selected save/profile compatibility, and advisory Nexus \
+            information. Critical findings require acknowledgement before launch; unavailable or stale \
+            Nexus data never makes a setup unsafe.
             """)
         }
     }

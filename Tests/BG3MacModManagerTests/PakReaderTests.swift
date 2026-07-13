@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import XCTest
+import ZSTD
 @testable import BG3MacModManager
 
 final class PakReaderTests: XCTestCase {
@@ -258,6 +259,50 @@ final class PakReaderTests: XCTestCase {
 
     func testCompressionTypeLZ4() {
         XCTAssertEqual(PakReader.CompressionType(rawValue: 2), .lz4)
+    }
+
+    func testCompressionTypeZstandard() {
+        XCTAssertEqual(PakReader.CompressionType(rawValue: 3), .zstd)
+    }
+
+    func testExtractsZstandardEntry() throws {
+        let contents = Data("modern BG3 save metadata".utf8)
+        let compressed = try ZSTD.memory.compress(data: contents)
+        let url = writeTempBinary(
+            name: "zstandard.pak",
+            data: makeSingleEntryPak(
+                name: "SaveInfo.json",
+                contents: compressed,
+                uncompressedSize: UInt32(contents.count),
+                flags: 3
+            )
+        )
+
+        XCTAssertEqual(
+            try PakReader.extractFile(named: "SaveInfo.json", from: url),
+            contents
+        )
+    }
+
+    func testZstandardEntryMustMatchDeclaredExpandedSize() throws {
+        let contents = Data("metadata".utf8)
+        let compressed = try ZSTD.memory.compress(data: contents)
+        let url = writeTempBinary(
+            name: "zstandard-bad-size.pak",
+            data: makeSingleEntryPak(
+                name: "SaveInfo.json",
+                contents: compressed,
+                uncompressedSize: UInt32(contents.count + 1),
+                flags: 3
+            )
+        )
+
+        XCTAssertThrowsError(try PakReader.extractFile(named: "SaveInfo.json", from: url)) { error in
+            guard case PakReader.PakError.decompressionFailed = error else {
+                XCTFail("Expected decompressionFailed, got \(error)")
+                return
+            }
+        }
     }
 
     func testCompressionTypeUnknownReturnsNil() {

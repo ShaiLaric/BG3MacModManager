@@ -54,6 +54,11 @@ struct ModSettingsService: Sendable {
         }
 
         let data = try Data(contentsOf: url)
+        return try read(data: data)
+    }
+
+    /// Parse modsettings data already extracted from an archive.
+    func read(data: Data) throws -> ModSettings {
         let document = try XMLDocument(data: data)
 
         return try parseDocument(document)

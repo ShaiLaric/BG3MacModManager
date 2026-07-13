@@ -1,6 +1,15 @@
 {
   "pins" : [
     {
+      "identity" : "elva",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/L1MeN9Yu/Elva.git",
+      "state" : {
+        "revision" : "c95092d9b5c7f39ea0aaf391a8df3cced4168b73",
+        "version" : "2.2.0"
+      }
+    },
+    {
       "identity" : "zipfoundation",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/weichsel/ZIPFoundation.git",

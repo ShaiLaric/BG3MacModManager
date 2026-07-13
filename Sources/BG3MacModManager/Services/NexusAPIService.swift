@@ -52,6 +52,8 @@ actor NexusAPIService {
     private let baseURL = "https://api.nexusmods.com/v1"
     private let gameDomain = "baldursgate3"
     private let session: URLSession
+    private let applicationName: String
+    private let applicationVersion: String
     nonisolated let credentialStore: NexusCredentialStore
 
     /// Minimum interval between API requests (to respect rate limits).
@@ -72,13 +74,19 @@ actor NexusAPIService {
         session: URLSession? = nil,
         credentialStore: NexusCredentialStore = NexusCredentialStore(),
         cacheURL: URL = FileLocations.appSupportDirectory
-            .appendingPathComponent("nexus_update_cache.json")
+            .appendingPathComponent("nexus_update_cache.json"),
+        applicationName: String = "BG3 Mac Mod Manager",
+        applicationVersion: String = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "1.4.0"
     ) {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         self.session = session ?? URLSession(configuration: config)
         self.credentialStore = credentialStore
         self.cacheURL = cacheURL
+        self.applicationName = applicationName
+        self.applicationVersion = applicationVersion
         credentialStore.migrateLegacyValueIfNeeded()
         cache = Self.loadCache(from: cacheURL)
     }
@@ -200,6 +208,8 @@ actor NexusAPIService {
         var request = URLRequest(url: url)
         request.setValue(apiKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(applicationName, forHTTPHeaderField: "Application-Name")
+        request.setValue(applicationVersion, forHTTPHeaderField: "Application-Version")
 
         let data: Data
         let response: URLResponse

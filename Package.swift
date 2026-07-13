@@ -9,12 +9,15 @@ let package = Package(
         .macOS(.v13)
     ],
     dependencies: [
+        .package(url: "https://github.com/L1MeN9Yu/Elva.git", from: "2.2.0"),
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
     ],
     targets: [
         .executableTarget(
             name: "BG3MacModManager",
             dependencies: [
+                .product(name: "LZ4", package: "Elva"),
+                .product(name: "ZSTD", package: "Elva"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
             path: "Sources/BG3MacModManager",

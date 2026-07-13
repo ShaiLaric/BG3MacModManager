@@ -103,6 +103,14 @@ struct ModRowView: View {
                         .help("This mod has user notes")
                 }
 
+                let persistentRules = appState.loadOrderRules(for: mod)
+                if !persistentRules.isEmpty {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.blue)
+                        .help("\(persistentRules.count) persistent load-order rule\(persistentRules.count == 1 ? "" : "s") references this mod")
+                }
+
                 // Inline dependency status indicator (for active mods with dependencies)
                 if isActive && !mod.dependencies.isEmpty && !mod.isBasicGameModule {
                     dependencyStatusIcon

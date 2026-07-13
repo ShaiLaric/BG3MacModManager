@@ -45,6 +45,7 @@ struct ModListView: View {
     @State private var filterMetadataSources: Set<String> = []
     @State private var inactiveFileMetadata: [String: FileSortMetadata] = [:]
     @State private var modAwaitingActivationPosition: ModInfo?
+    @State private var loadOrderRuleEditorRequest: LoadOrderRuleEditorRequest?
 
     private var currentSortOption: InactiveSortOption {
         InactiveSortOption(rawValue: inactiveSortOptionRaw) ?? .name
@@ -131,6 +132,14 @@ struct ModListView: View {
             ) { position in
                 appState.activateMod(mod, atLoadOrderPosition: position)
             }
+        }
+        .sheet(isPresented: $appState.showLoadOrderRules) {
+            LoadOrderRulesView()
+                .environmentObject(appState)
+        }
+        .sheet(item: $loadOrderRuleEditorRequest) { request in
+            LoadOrderRuleEditorView(request: request)
+                .environmentObject(appState)
         }
     }
 
@@ -452,7 +461,7 @@ struct ModListView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .help("Sort mods by community load order tiers (Framework → Gameplay → Content → Visual → Late Loader), then by dependencies within each tier")
+                .help("Globally satisfy dependencies and persistent rules, using community load-order tiers as the preference among otherwise eligible mods")
 
                 Menu {
                     Button("Activate All") { appState.activateAll() }
@@ -469,9 +478,13 @@ struct ModListView: View {
                     .help("Find and activate all missing dependencies from the inactive mod list")
                     Divider()
                     Button("Smart Sort (Tier + Dependencies)") { appState.smartSort() }
-                        .help("Sort by the 5-tier community convention, then apply dependency ordering within each tier. Uncategorized mods are placed in the middle.")
+                        .help("Satisfy dependencies and persistent rules globally, then prefer the 5-tier community order. Uncategorized mods use the middle tier.")
                     Button("Sort by Dependencies Only") { appState.autoSortByDependencies() }
                         .help("Sort using only declared mod dependencies (topological sort). Does not consider category tiers.")
+                    Divider()
+                    Button("Manage Load-Order Rules…") {
+                        appState.showLoadOrderRules = true
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -512,6 +525,7 @@ struct ModListView: View {
                                     appState.moveModToBottom(mod)
                                 }
                                 .help("Move this mod to the end of the load order")
+                                persistentRuleMenu(for: mod)
                             }
 
                             Divider()
@@ -612,6 +626,7 @@ struct ModListView: View {
                                     }
                                 }
                             }
+                            persistentRuleMenu(for: mod)
                             Divider()
                             Button("Open on Nexus Mods") {
                                 appState.openNexusPage(for: mod)
@@ -1053,6 +1068,48 @@ struct ModListView: View {
 
     private func requestActivationPosition(for mod: ModInfo) {
         modAwaitingActivationPosition = mod
+    }
+
+    @ViewBuilder
+    private func persistentRuleMenu(for mod: ModInfo) -> some View {
+        Menu("Persistent Load-Order Rules") {
+            Button("Always Load Before…") {
+                loadOrderRuleEditorRequest = LoadOrderRuleEditorRequest(
+                    sourceUUID: mod.uuid,
+                    kind: .before,
+                    position: nil
+                )
+            }
+            Button("Always Load After…") {
+                loadOrderRuleEditorRequest = LoadOrderRuleEditorRequest(
+                    sourceUUID: mod.uuid,
+                    kind: .after,
+                    position: nil
+                )
+            }
+            Divider()
+            Button("Pin to Position…") {
+                let userPosition = appState.activeMods
+                    .filter { !$0.isBasicGameModule }
+                    .firstIndex { ModIdentity.comparisonKey($0.uuid) == ModIdentity.comparisonKey(mod.uuid) }
+                    .map { $0 + 1 }
+                loadOrderRuleEditorRequest = LoadOrderRuleEditorRequest(
+                    sourceUUID: mod.uuid,
+                    kind: .pinPosition,
+                    position: userPosition
+                )
+            }
+            Button("Pin First") {
+                _ = appState.addLoadOrderRule(kind: .pinFirst, sourceUUID: mod.uuid)
+            }
+            Button("Pin Last") {
+                _ = appState.addLoadOrderRule(kind: .pinLast, sourceUUID: mod.uuid)
+            }
+            Divider()
+            Button("Manage Rules…") {
+                appState.showLoadOrderRules = true
+            }
+        }
     }
 
 

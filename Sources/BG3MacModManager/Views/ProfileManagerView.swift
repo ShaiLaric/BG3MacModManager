@@ -96,6 +96,12 @@ struct ProfileManagerView: View {
                         Text("Saved \(profile.updatedAt, style: .relative) ago")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
+                        let associationCount = appState.associations(for: profile).count
+                        if associationCount > 0 {
+                            Label("\(associationCount) save/campaign association\(associationCount == 1 ? "" : "s")", systemImage: "link")
+                                .font(.caption2)
+                                .foregroundStyle(.blue)
+                        }
                     }
 
                     Spacer()

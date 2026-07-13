@@ -88,6 +88,30 @@ final class AppState: ObservableObject {
     @Published var isCheckingForUpdates: Bool = false
     @Published var updateCheckProgress: (checked: Int, total: Int) = (0, 0)
 
+    /// Persistent global constraints used by sorting and validation.
+    @Published var loadOrderRules: [LoadOrderRule] = []
+    @Published var showLoadOrderRules: Bool = false
+
+    /// Latest immutable preflight report.
+    @Published var readinessReport: LaunchReadinessReport?
+    @Published var isCheckingReadiness: Bool = false
+    @Published var showLaunchReadinessBeforeLaunch: Bool = false
+
+    /// Discovered saves and explicit campaign/save profile associations.
+    @Published var saveGames: [SaveGameSummary] = []
+    @Published var saveProfileAssociations: [SaveProfileAssociation] = []
+    @Published var selectedSaveID: String?
+    @Published var isScanningSaveGames: Bool = false
+
+    /// Transactional manual-update workflow and durable rollback history.
+    @Published var modUpdateHistory: [ModUpdateHistoryRecord] = []
+    @Published var modUpdateProvenance: [String: ModUpdateProvenance] = [:]
+    @Published var modUpdateTarget: ModInfo?
+    @Published var pendingModUpdatePlan: ModUpdatePlan?
+    @Published var showModUpdatePicker: Bool = false
+    @Published var isUpdatingMod: Bool = false
+    @Published var modUpdateProgress = ModUpdateProgress(stage: .idle, completed: 0, total: 0)
+
     /// Whether the initial duplicate check has been performed (auto-show only on first load).
     private var hasPerformedInitialDuplicateCheck = false
 
@@ -130,6 +154,14 @@ final class AppState: ObservableObject {
     let nexusURLService = NexusURLService()
     let modNotesService = ModNotesService()
     let nexusAPIService = NexusAPIService()
+    let loadOrderRuleService = LoadOrderRuleService()
+    let loadOrderSolver = LoadOrderSolver()
+    let launchReadinessService = LaunchReadinessService()
+    let saveGameScanner = SaveGameScanner()
+    let saveProfileAssociationService = SaveProfileAssociationService()
+    let saveProfileComparator = SaveProfileComparator()
+    let modUpdateHistoryService = ModUpdateHistoryService()
+    let modUpdateService = ModUpdateService()
 
     // MARK: - Initialization
 
@@ -139,6 +171,9 @@ final class AppState: ObservableObject {
 
     func initialLoad() {
         Task {
+            loadPersistedLoadOrderRules()
+            loadPersistedSaveProfileAssociations()
+            loadPersistedModUpdateHistory()
             deleteModCrashSanityCheckIfNeeded()
             await refreshAll()
             checkForExternalModSettingsChange()
@@ -157,10 +192,13 @@ final class AppState: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        // Script Extender state is an input to mod validation. Refresh it before
+        // discovering mods so the initial validation cannot use a nil/stale status.
+        refreshSEStatus()
         await refreshMods()
         await refreshProfiles()
         await refreshBackups()
-        refreshSEStatus()
+        await refreshSaveGames()
     }
 
     func refreshMods() async {
@@ -215,12 +253,35 @@ final class AppState: ObservableObject {
         }
     }
 
+    func refreshSaveGames() async {
+        isScanningSaveGames = true
+        defer { isScanningSaveGames = false }
+        do {
+            saveGames = try await saveGameScanner.scan()
+            if selectedSaveID == nil || !saveGames.contains(where: { $0.id == selectedSaveID }) {
+                selectedSaveID = saveGames.first?.id
+            }
+            readinessReport = nil
+        } catch is CancellationError {
+            statusMessage = "Save scan cancelled"
+        } catch {
+            showError(error)
+        }
+    }
+
     func refreshSEStatus() {
         let status = seService.checkStatus()
-        seStatus = status
         if status.isDeployed {
             seService.recordDeployed()
         }
+        applySEStatus(status)
+    }
+
+    /// Publish a newly detected SE status and keep warnings synchronized with it.
+    /// Kept separate from filesystem detection so the state transition is testable.
+    func applySEStatus(_ status: ScriptExtenderService.SEStatus) {
+        seStatus = status
+        runValidation()
     }
 
     // MARK: - Undo/Redo Operations
@@ -271,6 +332,7 @@ final class AppState: ObservableObject {
             insertionIndex = activeMods.count
         }
 
+        if position != nil, !canActivate(mod, at: insertionIndex) { return }
         guard activateInactiveMod(mod, at: insertionIndex) else { return }
         if position != nil {
             statusMessage = "Activated \(mod.name) at load order position \(insertionIndex + 1)"
@@ -279,7 +341,9 @@ final class AppState: ObservableObject {
 
     /// Activate a mod at a zero-based insertion index used by drag and drop.
     func activateModAtPosition(_ mod: ModInfo, at index: Int) {
-        _ = activateInactiveMod(mod, at: min(max(index, 0), activeMods.count))
+        let insertionIndex = min(max(index, 0), activeMods.count)
+        guard canActivate(mod, at: insertionIndex) else { return }
+        _ = activateInactiveMod(mod, at: insertionIndex)
     }
 
     @discardableResult
@@ -293,6 +357,24 @@ final class AppState: ObservableObject {
         hasUnsavedChanges = true
         runValidation()
         return true
+    }
+
+    private func canActivate(_ mod: ModInfo, at insertionIndex: Int) -> Bool {
+        let currentViolations = Set(
+            LoadOrderSolver.violations(mods: activeMods, rules: loadOrderRules).map(\.ruleID)
+        )
+        var proposed = activeMods
+        proposed.insert(mod, at: min(max(insertionIndex, 0), proposed.count))
+        let newViolation = LoadOrderSolver.violations(mods: proposed, rules: loadOrderRules)
+            .first { violation in
+                !currentViolations.contains(violation.ruleID) ||
+                    violation.affectedModUUIDs.contains(ModIdentity.comparisonKey(mod.uuid))
+            }
+        guard let newViolation else { return true }
+
+        errorMessage = "Cannot activate at that position because it violates a load-order rule. \(newViolation.message)"
+        showError = true
+        return false
     }
 
     /// Deactivate a mod (move from active to inactive).
@@ -413,7 +495,8 @@ final class AppState: ObservableObject {
             activeMods: activeMods,
             inactiveMods: inactiveMods,
             seStatus: seStatus,
-            seWasPreviouslyDeployed: seService.wasDeployed()
+            seWasPreviouslyDeployed: seService.wasDeployed(),
+            loadOrderRules: loadOrderRules
         )
 
         let hasCritical = saveWarnings.contains { $0.severity == .critical }
@@ -458,6 +541,7 @@ final class AppState: ObservableObject {
             }
 
             hasUnsavedChanges = false
+            readinessReport = nil
 
             if preferences.autoBackup && preferences.backupRetentionDays > 0 {
                 do {
@@ -499,13 +583,18 @@ final class AppState: ObservableObject {
         saveSnapshot()
         // Reconstruct active/inactive lists from the profile
         let allMods = activeMods + inactiveMods
-        var newActive: [ModInfo] = []
+        let requiredGameModules = allMods.filter(\.isBasicGameModule)
+        var newActive = requiredGameModules
         var remainingUUIDs = Set(allMods.map { ModIdentity.comparisonKey($0.uuid) })
+        for module in requiredGameModules {
+            remainingUUIDs.remove(ModIdentity.comparisonKey(module.uuid))
+        }
         var missingMods: [MissingModInfo] = []
         var matchedCount = 0
 
         for uuid in profile.activeModUUIDs {
             let uuidKey = ModIdentity.comparisonKey(uuid)
+            guard !Constants.requiredGameModuleUUIDs.contains(uuidKey) else { continue }
             if let mod = allMods.first(where: {
                 ModIdentity.comparisonKey($0.uuid) == uuidKey
             }) {
@@ -547,7 +636,20 @@ final class AppState: ObservableObject {
         }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
-        activeMods = newActive
+        let base = newActive.filter(\.isBasicGameModule)
+        let userMods = newActive.filter { !$0.isBasicGameModule }
+        switch loadOrderSolver.solve(
+            mods: userMods,
+            rules: loadOrderRules,
+            mode: .dependenciesOnly
+        ) {
+        case .ordered(let ordered):
+            activeMods = base + ordered
+        case .conflict(let conflict):
+            activeMods = newActive
+            errorMessage = "Loaded the profile, but its load order could not satisfy persistent rules: \(conflict.message)"
+            showError = true
+        }
         inactiveMods = newInactive
         hasUnsavedChanges = true
         runValidation()
@@ -604,6 +706,163 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Save/Profile Associations
+
+    var selectedSave: SaveGameSummary? {
+        guard let selectedSaveID else { return nil }
+        return saveGames.first { $0.id == selectedSaveID }
+    }
+
+    func resolvedAssociation(for save: SaveGameSummary) -> ResolvedSaveProfileAssociation? {
+        saveProfileAssociationService.resolvedAssociation(
+            for: save,
+            in: saveProfileAssociations
+        )
+    }
+
+    func associatedProfile(for save: SaveGameSummary) -> ModProfile? {
+        guard let resolved = resolvedAssociation(for: save) else { return nil }
+        return profiles.first { $0.id == resolved.association.profileID }
+    }
+
+    func saveProfileComparison(for save: SaveGameSummary) -> SaveProfileComparison? {
+        guard let profile = associatedProfile(for: save) else { return nil }
+        return saveProfileComparator.compare(
+            save: save,
+            profile: profile,
+            activeMods: activeMods,
+            installedMods: activeMods + inactiveMods
+        )
+    }
+
+    func associations(for profile: ModProfile) -> [SaveProfileAssociation] {
+        saveProfileAssociations.filter { $0.profileID == profile.id }
+    }
+
+    func associate(
+        _ save: SaveGameSummary,
+        kind: SaveProfileAssociation.TargetKind,
+        with profile: ModProfile
+    ) {
+        let previous = saveProfileAssociations
+        saveProfileAssociations = saveProfileAssociationService.upserting(
+            kind: kind,
+            save: save,
+            profileID: profile.id,
+            in: previous
+        )
+        do {
+            try saveProfileAssociationService.saveAssociations(saveProfileAssociations)
+            readinessReport = nil
+            let target = kind == .campaign ? save.campaignName : save.displayName
+            statusMessage = "Associated \(target) with profile '\(profile.name)'"
+        } catch {
+            saveProfileAssociations = previous
+            showError(error)
+        }
+    }
+
+    func removeAssociation(_ association: SaveProfileAssociation) {
+        let previous = saveProfileAssociations
+        saveProfileAssociations.removeAll { $0.id == association.id }
+        do {
+            try saveProfileAssociationService.saveAssociations(saveProfileAssociations)
+            readinessReport = nil
+            statusMessage = "Removed save/profile association"
+        } catch {
+            saveProfileAssociations = previous
+            showError(error)
+        }
+    }
+
+    func prepareToPlay(_ save: SaveGameSummary) async {
+        selectedSaveID = save.id
+        guard let resolved = resolvedAssociation(for: save) else {
+            errorMessage = "Associate this save or campaign with a profile before preparing it."
+            showError = true
+            return
+        }
+        guard let profile = profiles.first(where: { $0.id == resolved.association.profileID }) else {
+            errorMessage = "The associated profile no longer exists. Choose another profile for this save."
+            showError = true
+            return
+        }
+
+        await loadProfile(profile)
+        _ = await refreshLaunchReadiness()
+        navigateToSidebarItem = "readiness"
+        statusMessage = "Prepared '\(profile.name)' for \(save.displayName); review readiness before launching"
+    }
+
+    private func loadPersistedSaveProfileAssociations() {
+        do {
+            saveProfileAssociations = try saveProfileAssociationService.loadAssociations()
+        } catch {
+            showError(error)
+        }
+    }
+
+    private func saveAssociationReadinessFindings() -> [ReadinessFinding] {
+        guard let save = selectedSave else { return [] }
+        if let readError = save.readError {
+            return [ReadinessFinding(
+                id: "save-unreadable:\(save.id):\(readError)",
+                severity: .warning,
+                category: .saves,
+                title: "Selected save could not be inspected",
+                detail: readError,
+                affectedModUUIDs: [],
+                affectedPaths: [save.fileURL],
+                action: .viewSaves
+            )]
+        }
+        guard let resolved = resolvedAssociation(for: save) else { return [] }
+        guard let profile = profiles.first(where: { $0.id == resolved.association.profileID }) else {
+            return [ReadinessFinding(
+                id: "save-profile-missing:\(resolved.association.id.uuidString)",
+                severity: .warning,
+                category: .saves,
+                title: "Associated profile no longer exists",
+                detail: "\(resolved.association.targetDisplayName) references a deleted profile. Choose a replacement association.",
+                affectedModUUIDs: [],
+                affectedPaths: [save.fileURL],
+                action: .viewSaves
+            )]
+        }
+
+        let comparison = saveProfileComparator.compare(
+            save: save,
+            profile: profile,
+            activeMods: activeMods,
+            installedMods: activeMods + inactiveMods
+        )
+        var findings: [ReadinessFinding] = []
+        if comparison.hasCurrentMismatch {
+            findings.append(ReadinessFinding(
+                id: "save-profile-current:\(save.id):\(profile.id.uuidString):\(comparison.summary)",
+                severity: comparison.missingInstalledUUIDs.isEmpty ? .warning : .critical,
+                category: .saves,
+                title: "Current setup does not match '\(profile.name)'",
+                detail: comparison.summary,
+                affectedModUUIDs: comparison.missingInstalledUUIDs + comparison.extraActiveUUIDs,
+                affectedPaths: [save.fileURL],
+                action: .loadProfile(profile.id)
+            ))
+        } else if comparison.saveOrderDiffersFromProfile {
+            findings.append(ReadinessFinding(
+                id: "save-profile-recorded:\(save.id):\(profile.id.uuidString)",
+                severity: .information,
+                category: .saves,
+                title: "Save recorded a different mod order",
+                detail: "The selected save's recorded order differs from its associated profile '\(profile.name)'.",
+                affectedModUUIDs: save.mods.map(\.uuid),
+                affectedPaths: [save.fileURL],
+                action: .viewSaves
+            ))
+        }
+        return findings
+    }
+
     // MARK: - Backups
 
     func restoreBackup(_ backup: BackupService.Backup) async {
@@ -629,6 +888,20 @@ final class AppState: ObservableObject {
     // MARK: - Game Launch
 
     func launchGame() async {
+        let report = await refreshLaunchReadiness()
+        if !report.criticalFindings.isEmpty {
+            showLaunchReadinessBeforeLaunch = true
+            return
+        }
+        await performLaunchAfterReadiness()
+    }
+
+    func launchDespiteReadiness() async {
+        showLaunchReadinessBeforeLaunch = false
+        await performLaunchAfterReadiness()
+    }
+
+    private func performLaunchAfterReadiness() async {
         if UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSaveBeforeLaunch),
            hasUnsavedChanges,
            !(await performSave()) {
@@ -638,6 +911,182 @@ final class AppState: ObservableObject {
         do {
             try launchService.launchGame()
             statusMessage = "Launching Baldur's Gate 3..."
+        } catch {
+            showError(error)
+        }
+    }
+
+    @discardableResult
+    func refreshLaunchReadiness() async -> LaunchReadinessReport {
+        isCheckingReadiness = true
+        defer { isCheckingReadiness = false }
+
+        runValidation()
+        let snapshot = LaunchReadinessSnapshot(
+            activeMods: activeMods,
+            inactiveMods: inactiveMods,
+            validationWarnings: warnings,
+            hasUnsavedChanges: hasUnsavedChanges,
+            externalModSettingsChangeDetected: showExternalChangeAlert,
+            modSettingsExists: FileLocations.modSettingsExists,
+            gameInstalled: FileLocations.isGameInstalled,
+            steamRunning: launchService.isSteamRunning(),
+            gameRunning: launchService.isGameRunning(),
+            nexusConfigured: nexusAPIService.apiKey != nil,
+            nexusCheckInProgress: isCheckingForUpdates,
+            nexusResults: Array(nexusUpdateResults.values),
+            additionalFindings: saveAssociationReadinessFindings()
+        )
+        let report = await launchReadinessService.evaluate(snapshot)
+        readinessReport = report
+        return report
+    }
+
+    func performReadinessAction(_ action: ReadinessAction) async {
+        var shouldRecheck = true
+        switch action {
+        case .refresh:
+            await refreshAll()
+        case .saveLoadOrder:
+            await saveModSettings()
+        case .smartSort:
+            smartSort()
+        case .deactivateMod(let uuid):
+            if let mod = activeMods.first(where: {
+                ModIdentity.comparisonKey($0.uuid) == ModIdentity.comparisonKey(uuid)
+            }) {
+                deactivateMod(mod)
+            }
+        case .activateDependencies(let uuid):
+            if let mod = activeMods.first(where: {
+                ModIdentity.comparisonKey($0.uuid) == ModIdentity.comparisonKey(uuid)
+            }) {
+                _ = activateMissingDependencies(for: mod)
+            }
+        case .deleteModCrashSanityCheck:
+            deleteModCrashSanityCheckIfNeeded()
+        case .restoreModSettings:
+            await restoreFromLatestBackup()
+        case .viewScriptExtender:
+            navigateToSidebarItem = "scriptExtender"
+            shouldRecheck = false
+        case .openModsFolder:
+            launchService.openModsFolder()
+            shouldRecheck = false
+        case .manageRules:
+            showLoadOrderRules = true
+            shouldRecheck = false
+        case .viewUpdates:
+            navigateToSidebarItem = "updates"
+            shouldRecheck = false
+        case .viewSaves:
+            navigateToSidebarItem = "saves"
+            shouldRecheck = false
+        case .loadProfile(let profileID):
+            if let profile = profiles.first(where: { $0.id == profileID }) {
+                await loadProfile(profile)
+            }
+        }
+
+        if shouldRecheck {
+            _ = await refreshLaunchReadiness()
+        }
+    }
+
+    // MARK: - Transactional Mod Updates
+
+    func beginModUpdate(for mod: ModInfo) {
+        guard !mod.isBasicGameModule, mod.pakFilePath != nil else {
+            errorMessage = "Only installed user mods can be updated."
+            showError = true
+            return
+        }
+        modUpdateTarget = mod
+        showModUpdatePicker = true
+    }
+
+    func inspectModUpdate(sourceURL: URL) async {
+        guard let target = modUpdateTarget else { return }
+        isUpdatingMod = true
+        modUpdateProgress = .init(stage: .inspecting, completed: 0, total: 1)
+        defer { isUpdatingMod = false }
+
+        let activeUserMods = activeMods.filter { !$0.isBasicGameModule }
+        let position = activeUserMods.firstIndex(where: {
+            ModIdentity.comparisonKey($0.uuid) == ModIdentity.comparisonKey(target.uuid)
+        }).map { $0 + 1 }
+        do {
+            let plan = try await modUpdateService.inspect(
+                sourceURL: sourceURL,
+                target: target,
+                wasActive: position != nil,
+                previousUserPosition: position,
+                nexusURL: nexusURLService.url(for: target.uuid)
+            )
+            pendingModUpdatePlan = plan
+            modUpdateProgress = .init(stage: .idle, completed: 1, total: 1)
+        } catch {
+            modUpdateTarget = nil
+            showError(error)
+        }
+    }
+
+    func applyPendingModUpdate() async {
+        guard let plan = pendingModUpdatePlan else { return }
+        isUpdatingMod = true
+        defer { isUpdatingMod = false }
+        do {
+            let record = try await modUpdateService.execute(plan) { progress in
+                await MainActor.run { self.modUpdateProgress = progress }
+            }
+            pendingModUpdatePlan = nil
+            modUpdateTarget = nil
+            loadPersistedModUpdateHistory()
+            readinessReport = nil
+            await refreshMods()
+            statusMessage = "Updated \(record.modName) transactionally; the previous version is available in Update History"
+        } catch {
+            pendingModUpdatePlan = nil
+            modUpdateTarget = nil
+            loadPersistedModUpdateHistory()
+            await refreshMods()
+            showError(error)
+        }
+    }
+
+    func cancelPendingModUpdate() {
+        guard let plan = pendingModUpdatePlan else {
+            modUpdateTarget = nil
+            return
+        }
+        pendingModUpdatePlan = nil
+        modUpdateTarget = nil
+        Task { await modUpdateService.discard(plan) }
+    }
+
+    func restorePreviousModVersion(_ record: ModUpdateHistoryRecord) async {
+        isUpdatingMod = true
+        defer { isUpdatingMod = false }
+        do {
+            let restored = try await modUpdateService.restore(record) { progress in
+                await MainActor.run { self.modUpdateProgress = progress }
+            }
+            loadPersistedModUpdateHistory()
+            readinessReport = nil
+            await refreshMods()
+            statusMessage = "Restored the previous version of \(restored.modName)"
+        } catch {
+            loadPersistedModUpdateHistory()
+            await refreshMods()
+            showError(error)
+        }
+    }
+
+    private func loadPersistedModUpdateHistory() {
+        do {
+            let payload = try modUpdateHistoryService.load()
+            modUpdateHistory = payload.records
+            modUpdateProvenance = payload.provenanceByUUID
         } catch {
             showError(error)
         }
@@ -1061,11 +1510,13 @@ final class AppState: ObservableObject {
 
     /// Run all validation checks against the current mod state.
     func runValidation() {
+        readinessReport = nil
         warnings = validationService.validate(
             activeMods: activeMods,
             inactiveMods: inactiveMods,
             seStatus: seStatus,
-            seWasPreviouslyDeployed: seService.wasDeployed()
+            seWasPreviouslyDeployed: seService.wasDeployed(),
+            loadOrderRules: loadOrderRules
         )
     }
 
@@ -1177,54 +1628,147 @@ final class AppState: ObservableObject {
 
     /// Sort active mods by dependency order using topological sort.
     func autoSortByDependencies() {
-        saveSnapshot()
         let nonBase = activeMods.filter { !$0.isBasicGameModule }
         let base = activeMods.filter { $0.isBasicGameModule }
 
-        if let sorted = validationService.topologicalSort(mods: nonBase) {
+        switch loadOrderSolver.solve(
+            mods: nonBase,
+            rules: loadOrderRules,
+            mode: .dependenciesOnly
+        ) {
+        case .ordered(let sorted):
+            saveSnapshot()
             activeMods = base + sorted
             hasUnsavedChanges = true
             runValidation()
-            statusMessage = "Mods sorted by dependency order"
-        } else {
-            errorMessage = "Cannot auto-sort: circular dependencies detected. Resolve cycles first."
+            statusMessage = "Mods sorted by dependencies and persistent rules"
+        case .conflict(let conflict):
+            errorMessage = "Cannot sort: \(conflict.message)"
             showError = true
         }
     }
 
-    /// Smart sort: groups mods by category tier, then applies dependency sort within each tier.
-    /// Mods without a category are placed after Tier 3 (content extensions) and before Tier 4 (visual).
+    /// Smart sort: globally satisfies hard dependencies/rules and uses category as a soft priority.
     func smartSort() {
-        saveSnapshot()
         let base = activeMods.filter { $0.isBasicGameModule }
         let nonBase = activeMods.filter { !$0.isBasicGameModule }
 
-        // Group by tier (nil category goes into a synthetic middle tier)
-        var tiers: [Int: [ModInfo]] = [:]
-        for mod in nonBase {
-            let tierKey = mod.category?.rawValue ?? 3 // uncategorized sorts with content extensions
-            tiers[tierKey, default: []].append(mod)
+        switch loadOrderSolver.solve(
+            mods: nonBase,
+            rules: loadOrderRules,
+            mode: .smart
+        ) {
+        case .ordered(let sorted):
+            saveSnapshot()
+            activeMods = base + sorted
+            hasUnsavedChanges = true
+            runValidation()
+
+            let categorized = nonBase.filter { $0.category != nil }.count
+            statusMessage = "Smart sort complete (\(categorized)/\(nonBase.count) categorized; rules applied)"
+        case .conflict(let conflict):
+            errorMessage = "Cannot smart sort: \(conflict.message)"
+            showError = true
+        }
+    }
+
+    // MARK: - Persistent Load-Order Rules
+
+    private func loadPersistedLoadOrderRules() {
+        do {
+            loadOrderRules = try loadOrderRuleService.loadRules()
+        } catch {
+            showError(error)
+        }
+    }
+
+    @discardableResult
+    func addLoadOrderRule(
+        kind: LoadOrderRule.Kind,
+        sourceUUID: String,
+        targetUUID: String? = nil,
+        position: Int? = nil
+    ) -> Bool {
+        let rule = LoadOrderRule(
+            kind: kind,
+            sourceUUID: sourceUUID,
+            targetUUID: targetUUID,
+            position: position
+        )
+        do {
+            try loadOrderRuleService.validate(rule)
+        } catch {
+            showError(error)
+            return false
         }
 
-        var sorted: [ModInfo] = []
-        // Process tiers in order: 1, 2, 3, 4, 5
-        for tier in 1...5 {
-            guard let modsInTier = tiers[tier], !modsInTier.isEmpty else { continue }
-            // Apply topological sort within the tier for dependency correctness
-            if let tierSorted = validationService.topologicalSort(mods: modsInTier) {
-                sorted.append(contentsOf: tierSorted)
-            } else {
-                // Cycle within tier — fall back to original order
-                sorted.append(contentsOf: modsInTier)
-            }
+        let previous = loadOrderRules
+        if let index = loadOrderRules.firstIndex(where: {
+            $0.kind == rule.kind &&
+                $0.sourceUUID == rule.sourceUUID &&
+                $0.targetUUID == rule.targetUUID &&
+                $0.position == rule.position &&
+                $0.profileID == nil
+        }) {
+            loadOrderRules[index].isEnabled = true
+            loadOrderRules[index].updatedAt = Date()
+        } else {
+            loadOrderRules.append(rule)
         }
 
-        activeMods = base + sorted
-        hasUnsavedChanges = true
+        guard persistLoadOrderRules(orRestore: previous) else { return false }
         runValidation()
+        statusMessage = "Saved persistent load-order rule"
+        return true
+    }
 
-        let categorized = nonBase.filter { $0.category != nil }.count
-        statusMessage = "Smart sort complete (\(categorized)/\(nonBase.count) mods categorized)"
+    func setLoadOrderRuleEnabled(_ rule: LoadOrderRule, enabled: Bool) {
+        guard let index = loadOrderRules.firstIndex(where: { $0.id == rule.id }) else { return }
+        let previous = loadOrderRules
+        loadOrderRules[index].isEnabled = enabled
+        loadOrderRules[index].updatedAt = Date()
+        guard persistLoadOrderRules(orRestore: previous) else { return }
+        runValidation()
+    }
+
+    func deleteLoadOrderRule(_ rule: LoadOrderRule) {
+        let previous = loadOrderRules
+        loadOrderRules.removeAll { $0.id == rule.id }
+        guard persistLoadOrderRules(orRestore: previous) else { return }
+        runValidation()
+        statusMessage = "Deleted load-order rule"
+    }
+
+    func loadOrderRules(for mod: ModInfo) -> [LoadOrderRule] {
+        let uuid = ModIdentity.comparisonKey(mod.uuid)
+        return loadOrderRules.filter {
+            $0.sourceUUID == uuid || $0.targetUUID == uuid
+        }
+    }
+
+    func displayName(forModUUID uuid: String) -> String {
+        let key = ModIdentity.comparisonKey(uuid)
+        return (activeMods + inactiveMods).first {
+            ModIdentity.comparisonKey($0.uuid) == key
+        }?.name ?? uuid
+    }
+
+    func isInstalledModUUID(_ uuid: String) -> Bool {
+        let key = ModIdentity.comparisonKey(uuid)
+        return (activeMods + inactiveMods).contains {
+            ModIdentity.comparisonKey($0.uuid) == key
+        }
+    }
+
+    private func persistLoadOrderRules(orRestore previous: [LoadOrderRule]) -> Bool {
+        do {
+            try loadOrderRuleService.saveRules(loadOrderRules)
+            return true
+        } catch {
+            loadOrderRules = previous
+            showError(error)
+            return false
+        }
     }
 
     /// Set a user category override for a mod and re-infer.
@@ -1315,51 +1859,36 @@ final class AppState: ObservableObject {
     // MARK: - Import from Save File
 
     /// Import mod load order from a BG3 save file (.lsv).
-    /// Save files are LSPK archives containing modsettings.lsx.
+    /// Supports modern binary meta.lsf metadata and legacy modsettings.lsx saves.
     func importFromSaveFile(url: URL) async {
         saveSnapshot()
         do {
-            // 1. List files in the archive and find modsettings.lsx
-            let entries = try PakReader.listFiles(at: url)
-            guard let settingsEntry = entries.first(where: {
-                $0.name.hasSuffix("modsettings.lsx") ||
-                $0.name.replacingOccurrences(of: "\\", with: "/").hasSuffix("modsettings.lsx")
-            }) else {
-                errorMessage = "No modsettings.lsx found in save file."
+            let save = try await saveGameScanner.inspectSave(at: url)
+            guard save.isReadable else {
+                errorMessage = save.readError ?? "The save metadata could not be read."
                 showError = true
                 return
             }
 
-            // 2. Extract and parse
-            let data = try PakReader.extractFile(named: settingsEntry.name, from: url)
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("save-modsettings-\(UUID().uuidString).lsx")
-            try data.write(to: tempURL)
-            defer { try? FileManager.default.removeItem(at: tempURL) }
-
-            let settings = try modSettingsService.read(from: tempURL)
-
-            // 3. Reconstruct active/inactive lists from save data
+            // Reconstruct active/inactive lists from save data.
             let allMods = activeMods + inactiveMods
             var newActive: [ModInfo] = []
             var usedUUIDs: Set<String> = []
 
-            for uuid in settings.modOrder {
-                guard !Constants.builtInModuleUUIDs.contains(uuid) else { continue }
-
-                if let mod = allMods.first(where: { $0.uuid == uuid }) {
+            for entry in save.mods {
+                if let mod = allMods.first(where: { $0.uuid == entry.uuid }) {
                     newActive.append(mod)
-                    usedUUIDs.insert(uuid)
-                } else if let desc = settings.mods[uuid] {
+                    usedUUIDs.insert(entry.uuid)
+                } else {
                     // Create placeholder for mods we don't have on disk
                     let mod = ModInfo(
-                        uuid: desc.uuid,
-                        folder: desc.folder,
-                        name: desc.name,
+                        uuid: entry.uuid,
+                        folder: entry.folder,
+                        name: entry.name,
                         author: "Unknown",
                         modDescription: "",
-                        version64: Int64(desc.version64) ?? 36028797018963968,
-                        md5: desc.md5,
+                        version64: entry.version64,
+                        md5: entry.md5,
                         tags: [],
                         dependencies: [],
                         conflicts: [],
@@ -1369,7 +1898,7 @@ final class AppState: ObservableObject {
                         metadataSource: .modSettings
                     )
                     newActive.append(mod)
-                    usedUUIDs.insert(uuid)
+                    usedUUIDs.insert(entry.uuid)
                 }
             }
 
@@ -1527,6 +2056,7 @@ final class AppState: ObservableObject {
                 await self.setUpdateCheckProgress(checked: checked, total: total)
             }
             nexusUpdateResults = report.results
+            readinessReport = nil
             if !report.cachePersisted {
                 errorMessage = "Nexus results were checked but could not be saved to the local cache."
                 showError = true
@@ -1607,7 +2137,7 @@ enum ImportDiscoveryMerger {
         )
         var accountedUUIDs = Set<String>()
 
-        let active = previousActive.compactMap { previousMod -> ModInfo? in
+        var active = previousActive.compactMap { previousMod -> ModInfo? in
             guard accountedUUIDs.insert(previousMod.uuid).inserted else { return nil }
             // Keep an active entry even if its PAK is temporarily missing; importing another mod
             // should never silently remove or deactivate the user's current load-order entries.
@@ -1625,11 +2155,23 @@ enum ImportDiscoveryMerger {
         var newMods: [ModInfo] = []
         for mod in discovered where !previouslyKnownUUIDs.contains(mod.uuid) {
             guard accountedUUIDs.insert(mod.uuid).inserted else { continue }
-            newMods.append(mod)
+            if mod.isBasicGameModule {
+                active.insert(mod, at: 0)
+            } else {
+                newMods.append(mod)
+            }
         }
         newMods.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
         inactive.append(contentsOf: newMods)
+        // A previously known required component may have been in the inactive pane in
+        // an older app state. Promote its refreshed representation unconditionally.
+        for module in discovered.filter(\.isBasicGameModule) where !active.contains(where: {
+            ModIdentity.comparisonKey($0.uuid) == ModIdentity.comparisonKey(module.uuid)
+        }) {
+            active.insert(module, at: 0)
+        }
+        inactive.removeAll(where: \.isBasicGameModule)
 
         return Result(
             active: active,

@@ -18,14 +18,32 @@ final class ModValidationServiceTests: XCTestCase {
         activeMods: [ModInfo] = [],
         inactiveMods: [ModInfo] = [],
         seStatus: ScriptExtenderService.SEStatus? = nil,
-        seWasPreviouslyDeployed: Bool = false
+        seWasPreviouslyDeployed: Bool = false,
+        loadOrderRules: [LoadOrderRule] = []
     ) -> [ModWarning] {
         service.validate(
             activeMods: activeMods,
             inactiveMods: inactiveMods,
             seStatus: seStatus,
-            seWasPreviouslyDeployed: seWasPreviouslyDeployed
+            seWasPreviouslyDeployed: seWasPreviouslyDeployed,
+            loadOrderRules: loadOrderRules
         ).filter { $0.category == category }
+    }
+
+    func testViolatedLoadOrderRuleProducesWarning() {
+        let a = makeModInfo(uuid: "a", name: "A")
+        let b = makeModInfo(uuid: "b", name: "B")
+        let rule = LoadOrderRule(kind: .before, sourceUUID: "b", targetUUID: "a")
+
+        let result = warnings(
+            .loadOrderRule,
+            activeMods: [a, b],
+            loadOrderRules: [rule]
+        )
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].suggestedAction, .autoSort)
+        XCTAssertEqual(Set(result[0].affectedModUUIDs), ["a", "b"])
     }
 
     // MARK: - Duplicate UUIDs

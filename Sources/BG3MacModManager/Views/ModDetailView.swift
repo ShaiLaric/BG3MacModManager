@@ -22,9 +22,17 @@ struct ModDetailView: View {
                     categorySection
                 }
 
+                if !mod.isBasicGameModule {
+                    loadOrderRulesSection
+                }
+
                 // Nexus Mods link
                 if !mod.isBasicGameModule {
                     nexusSection
+                }
+
+                if !mod.isBasicGameModule, mod.pakFilePath != nil {
+                    updateSection
                 }
 
                 // User notes
@@ -169,6 +177,46 @@ struct ModDetailView: View {
         )
     }
 
+    private var loadOrderRulesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Persistent Load-Order Rules")
+                    .font(.headline)
+                Spacer()
+                Button("Manage…") {
+                    appState.showLoadOrderRules = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            let rules = appState.loadOrderRules(for: mod)
+            if rules.isEmpty {
+                Text("No persistent rules reference this mod.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(rules) { rule in
+                    HStack(spacing: 6) {
+                        Image(systemName: rule.isEnabled ? "pin.fill" : "pin.slash")
+                            .foregroundStyle(rule.isEnabled ? .blue : .secondary)
+                        Text(rule.kind.displayName)
+                            .font(.caption)
+                        if let target = rule.targetUUID {
+                            Text(appState.displayName(forModUUID: target))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let position = rule.position {
+                            Text("#\(position)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Nexus Mods
 
     private var nexusSection: some View {
@@ -306,6 +354,35 @@ struct ModDetailView: View {
     private func saveNexusURL() {
         appState.setNexusURL(editingNexusURL.isEmpty ? nil : editingNexusURL, for: mod)
         isEditingNexusURL = false
+    }
+
+    // MARK: - Transactional Update
+
+    private var updateSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Update")
+                .font(.headline)
+            Text("Select a downloaded PAK or archive. The app checks the UUID, creates a durable backup, installs transactionally, and verifies the result.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                if appState.nexusURLService.url(for: mod.uuid) != nil {
+                    Button("Download in Browser") {
+                        appState.openNexusPage(for: mod)
+                    }
+                }
+                Button("Update from Archive…") {
+                    appState.beginModUpdate(for: mod)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(appState.isUpdatingMod)
+            }
+            if let provenance = appState.modUpdateProvenance[ModIdentity.comparisonKey(mod.uuid)] {
+                Text("Last transactional install: \(provenance.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 
     // MARK: - Notes

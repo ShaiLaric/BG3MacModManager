@@ -92,6 +92,19 @@ final class ModDiscoveryServiceTests: XCTestCase {
         )
     }
 
+    func testRequiredGameComponentIsAlwaysActiveWithoutModSettings() throws {
+        try writeMod(named: "Gustav", uuid: Constants.gustavUUID)
+        try writeMod(named: "UserMod", uuid: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+
+        let state = try ModDiscoveryService(
+            modsFolder: modsDirectory,
+            modSettingsURL: settingsURL
+        ).discoverModsWithState()
+
+        XCTAssertEqual(state.active.map(\.uuid), [Constants.gustavUUID])
+        XCTAssertEqual(state.inactive.map(\.name), ["UserMod"])
+    }
+
     func testPackagedBuiltInMetadataDoesNotHideTheActualMod() throws {
         let partyUUID = "08c0c2c1-d19f-1939-7af7-a1231317a6b0"
         let gustavMetadata = metadataXML(

@@ -4,6 +4,25 @@ import XCTest
 @testable import BG3MacModManager
 
 final class ImportDiscoveryMergerTests: XCTestCase {
+
+    func testRequiredGameComponentIsPromotedFromLegacyInactiveState() {
+        let gustav = makeModInfo(
+            uuid: Constants.gustavUUID,
+            folder: "Gustav",
+            name: "Gustav"
+        )
+        let userMod = makeModInfo(uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+        let result = ImportDiscoveryMerger.merge(
+            previousActive: [userMod],
+            previousInactive: [gustav],
+            hadUnsavedChanges: true,
+            discovered: [gustav, userMod]
+        )
+
+        XCTAssertEqual(result.active.map(\.uuid), [Constants.gustavUUID, userMod.uuid])
+        XCTAssertFalse(result.inactive.contains(where: \.isBasicGameModule))
+    }
     func testMergePreservesActiveOrderAndAddsNewModsAsInactive() {
         let activeA = makeModInfo(uuid: "active-a", name: "Old Active A")
         let activeB = makeModInfo(uuid: "active-b", name: "Old Active B")
