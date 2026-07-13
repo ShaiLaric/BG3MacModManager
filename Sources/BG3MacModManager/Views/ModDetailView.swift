@@ -300,9 +300,39 @@ struct ModDetailView: View {
             }
 
             // Update status
-            if let updateInfo = appState.nexusUpdateInfo(for: mod) {
+            if appState.isNexusCheckDisabled(for: mod.uuid) {
                 HStack(spacing: 8) {
-                    if updateInfo.hasUpdate {
+                    Image(systemName: "pause.circle.fill")
+                        .foregroundStyle(.secondary)
+                    Text("Nexus update checks disabled")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Enable Checks") {
+                        appState.setNexusChecksDisabled(false, for: mod)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            } else if let updateInfo = appState.nexusUpdateInfo(for: mod) {
+                HStack(spacing: 8) {
+                    if appState.isNexusVersionIgnored(updateInfo) {
+                        Image(systemName: "eye.slash.circle.fill")
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Nexus version \(updateInfo.latestVersion) ignored")
+                                .font(.caption.bold())
+                            Text("Useful for optional or alternate files whose version differs from the mod page.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Stop Ignoring") {
+                            appState.stopIgnoringNexusVersion(for: mod.uuid)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    } else if updateInfo.hasUpdate {
                         Image(systemName: "arrow.up.circle.fill")
                             .foregroundStyle(.yellow)
                         VStack(alignment: .leading, spacing: 2) {

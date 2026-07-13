@@ -85,6 +85,7 @@ final class AppState: ObservableObject {
 
     /// Nexus Mods update check results.
     @Published var nexusUpdateResults: [String: NexusUpdateResult] = [:]
+    @Published var nexusUpdatePreferences: [String: NexusUpdatePreference] = [:]
     @Published var isCheckingForUpdates: Bool = false
     @Published var updateCheckProgress: (checked: Int, total: Int) = (0, 0)
 
@@ -154,6 +155,7 @@ final class AppState: ObservableObject {
     let nexusURLService = NexusURLService()
     let modNotesService = ModNotesService()
     let nexusAPIService = NexusAPIService()
+    let nexusUpdatePreferenceService = NexusUpdatePreferenceService()
     let loadOrderRuleService = LoadOrderRuleService()
     let loadOrderSolver = LoadOrderSolver()
     let launchReadinessService = LaunchReadinessService()
@@ -174,6 +176,7 @@ final class AppState: ObservableObject {
             loadPersistedLoadOrderRules()
             loadPersistedSaveProfileAssociations()
             loadPersistedModUpdateHistory()
+            loadPersistedNexusUpdatePreferences()
             deleteModCrashSanityCheckIfNeeded()
             await refreshAll()
             checkForExternalModSettingsChange()
@@ -935,6 +938,11 @@ final class AppState: ObservableObject {
             nexusConfigured: nexusAPIService.apiKey != nil,
             nexusCheckInProgress: isCheckingForUpdates,
             nexusResults: Array(nexusUpdateResults.values),
+            suppressedNexusResultIDs: Set(
+                nexusUpdateResults.values
+                    .filter(isNexusResultSuppressed)
+                    .map { ModIdentity.comparisonKey($0.modUUID) }
+            ),
             additionalFindings: saveAssociationReadinessFindings()
         )
         let report = await launchReadinessService.evaluate(snapshot)
@@ -2038,6 +2046,7 @@ final class AppState: ObservableObject {
 
         do {
             let candidates = (activeMods + inactiveMods).compactMap { mod -> NexusUpdateCandidate? in
+                guard !isNexusCheckDisabled(for: mod.uuid) else { return nil }
                 guard let url = nexusURLService.url(for: mod.uuid) else { return nil }
                 return NexusUpdateCandidate(
                     modUUID: mod.uuid,
@@ -2047,7 +2056,10 @@ final class AppState: ObservableObject {
             }
             guard !candidates.isEmpty else {
                 nexusUpdateResults = [:]
-                statusMessage = "No mods have Nexus URLs to check"
+                let disabledCount = nexusUpdatePreferences.values.filter(\.checksDisabled).count
+                statusMessage = disabledCount > 0
+                    ? "No enabled Nexus-linked mods to check (\(disabledCount) disabled)"
+                    : "No mods have Nexus URLs to check"
                 return
             }
             let report = try await nexusAPIService.checkForUpdates(
@@ -2061,8 +2073,10 @@ final class AppState: ObservableObject {
                 errorMessage = "Nexus results were checked but could not be saved to the local cache."
                 showError = true
             }
-            let updateCount = report.results.values.filter(\.hasUpdate).count
-            let differenceCount = report.results.values.filter(\.versionDiffers).count
+            let actionable = report.results.values.filter { !isNexusResultSuppressed($0) }
+            let updateCount = actionable.filter(\.hasUpdate).count
+            let differenceCount = actionable.filter(\.versionDiffers).count
+            let ignoredCount = report.results.values.filter(isNexusVersionIgnored).count
             if !report.isComplete {
                 var details: [String] = []
                 if report.rateLimited { details.append("rate limited") }
@@ -2073,6 +2087,8 @@ final class AppState: ObservableObject {
                 statusMessage = "Found \(updateCount) mod update(s) available"
             } else if differenceCount > 0 {
                 statusMessage = "Nexus versions differ for \(differenceCount) mod(s)"
+            } else if ignoredCount > 0 {
+                statusMessage = "No actionable Nexus updates (\(ignoredCount) version difference(s) ignored)"
             } else {
                 statusMessage = "All checked mods are up to date"
             }
@@ -2087,12 +2103,90 @@ final class AppState: ObservableObject {
 
     /// Whether a mod has an available update on Nexus.
     func hasNexusUpdate(for mod: ModInfo) -> Bool {
-        nexusUpdateResults[mod.uuid]?.hasUpdate == true
+        guard let result = nexusUpdateInfo(for: mod) else { return false }
+        return result.hasUpdate && !isNexusResultSuppressed(result)
     }
 
     /// Get the full update info for a mod, if available.
     func nexusUpdateInfo(for mod: ModInfo) -> NexusUpdateResult? {
-        nexusUpdateResults[mod.uuid]
+        nexusUpdateResults[ModIdentity.comparisonKey(mod.uuid)]
+    }
+
+    var nexusAttentionResults: [NexusUpdateResult] {
+        nexusUpdateResults.values.filter {
+            ($0.hasUpdate || $0.versionDiffers) && !isNexusResultSuppressed($0)
+        }
+    }
+
+    var nexusAttentionCount: Int { nexusAttentionResults.count }
+
+    func isNexusCheckDisabled(for modUUID: String) -> Bool {
+        nexusUpdatePreferences[ModIdentity.comparisonKey(modUUID)]?.checksDisabled == true
+    }
+
+    func isNexusVersionIgnored(_ result: NexusUpdateResult) -> Bool {
+        guard result.hasUpdate || result.versionDiffers else { return false }
+        guard let preference = nexusUpdatePreferences[ModIdentity.comparisonKey(result.modUUID)],
+              !preference.checksDisabled else { return false }
+        return preference.suppresses(result)
+    }
+
+    func isNexusResultSuppressed(_ result: NexusUpdateResult) -> Bool {
+        nexusUpdatePreferences[ModIdentity.comparisonKey(result.modUUID)]?.suppresses(result) == true
+    }
+
+    func ignoreNexusVersion(_ result: NexusUpdateResult) {
+        persistNexusUpdatePreferences(
+            nexusUpdatePreferenceService.ignoring(result, in: nexusUpdatePreferences),
+            successMessage: "Ignored Nexus version \(result.latestVersion) for \(result.latestName)"
+        )
+    }
+
+    func stopIgnoringNexusVersion(for modUUID: String) {
+        persistNexusUpdatePreferences(
+            nexusUpdatePreferenceService.clearingIgnoredVersion(
+                for: modUUID,
+                in: nexusUpdatePreferences
+            ),
+            successMessage: "Nexus version alerts re-enabled"
+        )
+    }
+
+    func setNexusChecksDisabled(_ disabled: Bool, for mod: ModInfo) {
+        persistNexusUpdatePreferences(
+            nexusUpdatePreferenceService.settingChecksDisabled(
+                disabled,
+                for: mod.uuid,
+                in: nexusUpdatePreferences
+            ),
+            successMessage: disabled
+                ? "Disabled Nexus checks for \(mod.name)"
+                : "Enabled Nexus checks for \(mod.name)"
+        )
+    }
+
+    private func loadPersistedNexusUpdatePreferences() {
+        do {
+            nexusUpdatePreferences = try nexusUpdatePreferenceService.loadPreferences()
+        } catch {
+            showError(error)
+        }
+    }
+
+    private func persistNexusUpdatePreferences(
+        _ updated: [String: NexusUpdatePreference],
+        successMessage: String
+    ) {
+        let previous = nexusUpdatePreferences
+        nexusUpdatePreferences = updated
+        do {
+            try nexusUpdatePreferenceService.savePreferences(updated)
+            readinessReport = nil
+            statusMessage = successMessage
+        } catch {
+            nexusUpdatePreferences = previous
+            showError(error)
+        }
     }
 
     // MARK: - Error Handling

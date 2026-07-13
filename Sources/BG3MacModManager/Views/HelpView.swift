@@ -12,8 +12,11 @@ struct HelpView: View {
         case loadOrder = "Load Order & Sorting"
         case deletingMods = "Deleting Mods"
         case profiles = "Profiles"
+        case saveGames = "Save Games"
         case importExport = "Import & Export"
         case backups = "Backups"
+        case launchReadiness = "Launch Readiness"
+        case modUpdates = "Mod Updates & Nexus"
         case scriptExtender = "Script Extender"
         case validation = "Validation & Warnings"
         case tools = "Tools"
@@ -30,8 +33,11 @@ struct HelpView: View {
             case .loadOrder: return "list.number"
             case .deletingMods: return "trash"
             case .profiles: return "person.2"
+            case .saveGames: return "doc.text.magnifyingglass"
             case .importExport: return "square.and.arrow.up.on.square"
             case .backups: return "clock.arrow.circlepath"
+            case .launchReadiness: return "checkmark.shield"
+            case .modUpdates: return "arrow.triangle.2.circlepath"
             case .scriptExtender: return "terminal"
             case .validation: return "exclamationmark.triangle"
             case .tools: return "wrench.and.screwdriver"
@@ -79,10 +85,16 @@ struct HelpView: View {
             deletingModsContent
         case .profiles:
             profilesContent
+        case .saveGames:
+            saveGamesContent
         case .importExport:
             importExportContent
         case .backups:
             backupsContent
+        case .launchReadiness:
+            launchReadinessContent
+        case .modUpdates:
+            modUpdatesContent
         case .scriptExtender:
             scriptExtenderContent
         case .validation:
@@ -141,7 +153,7 @@ struct HelpView: View {
                 "Launch Readiness — Run a point-in-time preflight and repair actionable findings",
                 "Mod Updates — Review Nexus version information, transactional update history, and rollback backups",
                 "Script Extender — Check bg3se-macos installation status",
-                "Tools — Version number converter and PAK/ZIP file inspector",
+                "Tools — Version converter, PAK/ZIP inspector, and bulk Nexus URL import",
                 "Help — This documentation",
             ])
         }
@@ -464,6 +476,50 @@ struct HelpView: View {
         }
     }
 
+    // MARK: - Save Games
+
+    private var saveGamesContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            helpTitle("Save Games")
+
+            helpText("""
+            Save Games scans the Public profile's Story saves, groups them by campaign, and reads the \
+            mod order recorded inside each .lsv. Modern compressed metadata and legacy save layouts are \
+            supported. Rescan after copying or removing saves while the app is open.
+            """)
+
+            helpHeading("Inspecting a Save")
+            helpText("""
+            Select a save to see its recorded load order, mod versions, campaign name, timestamp, and \
+            file path. An unreadable or corrupt save remains visible with its inspection error instead \
+            of being treated as an empty mod list. “Import Order” loads the save's recorded order into \
+            the Mods view; it does not write modsettings.lsx until you save.
+            """)
+
+            helpHeading("Profile Associations")
+            helpBulletList([
+                "Associate Campaign — Uses one profile for every save in the campaign.",
+                "Associate Save — Creates an override for one save; it takes precedence over the campaign association.",
+                "Change / Remove Association — Replaces or removes the explicit link without changing the save file.",
+                "Associations are stored by stable save/campaign identity and survive rescans and file renames when macOS exposes the same resource identity.",
+            ])
+
+            helpHeading("Comparison")
+            helpText("""
+            When a save has an associated profile, the app compares the save, the profile, the current \
+            active order, and installed PAKs. It reports missing or extra mods, installed-version \
+            differences, profile-order differences, and whether the current active setup matches.
+            """)
+
+            helpHeading("Prepare to Play")
+            helpText("""
+            “Prepare to Play” explicitly loads the associated profile and opens Launch Readiness. The \
+            app never watches save files and silently switches profiles. Depending on Settings, loading \
+            the profile may still leave an unsaved load order that you must review or save before launch.
+            """)
+        }
+    }
+
     // MARK: - Import & Export
 
     private var importExportContent: some View {
@@ -561,6 +617,111 @@ struct HelpView: View {
             helpText("""
             By default, backups are kept for 30 days. You can change the retention period \
             in Settings > General > Backups, or choose to keep backups forever.
+            """)
+        }
+    }
+
+    // MARK: - Launch Readiness
+
+    private var launchReadinessContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            helpTitle("Launch Readiness")
+
+            helpText("""
+            Launch Readiness is a point-in-time preflight for the displayed load order. It complements \
+            continuous validation with checks that are useful immediately before starting the game. \
+            Recheck after changing files, profiles, settings, or Script Extender deployment.
+            """)
+
+            helpHeading("What Is Checked")
+            helpBulletList([
+                "Load-order validation — dependencies, ordering rules, conflicts, phantom mods, and Script Extender requirements.",
+                "Installed files — active PAK existence, readability, and archive validity.",
+                "Configuration — unsaved changes, missing modsettings.lsx, and changes made outside the app.",
+                "Game state — BG3 installation, Steam availability, whether BG3 is already running, and Script Extender status.",
+                "Saves and profiles — compatibility for the selected save and its explicit profile association.",
+                "Nexus — cached version differences and check freshness; Nexus information is always advisory.",
+            ])
+
+            helpHeading("Ready, Review, and Critical")
+            helpBulletList([
+                "Ready — No critical or warning findings were found in this snapshot.",
+                "Review — Warnings deserve attention but do not block launch.",
+                "Critical — Launching may fail or use the wrong configuration. Launch shows a confirmation with Review Readiness and Launch Anyway choices.",
+            ])
+
+            helpHeading("Actions and Diagnostics")
+            helpText("""
+            Findings may offer direct actions such as Save, Sort, Activate Dependencies, Restore, Open \
+            Mods Folder, Manage Rules, or navigation to Saves, Updates, and Script Extender. “Copy \
+            Diagnostics” copies the snapshot ID, timestamp, findings, and unavailable/stale checks for \
+            troubleshooting. A stale or unavailable Nexus check never changes launch safety by itself.
+            """)
+        }
+    }
+
+    // MARK: - Mod Updates & Nexus
+
+    private var modUpdatesContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            helpTitle("Mod Updates & Nexus")
+
+            helpText("""
+            The Nexus integration checks version metadata and helps you install downloaded updates \
+            safely. It does not download Nexus files through the API; acquisition remains a browser \
+            download followed by manual archive selection.
+            """)
+
+            helpHeading("Set Up Nexus Checking")
+            helpNumberedList([
+                "Open Settings (Cmd+,), then General > Nexus Mods, and enter a personal API key. The key is stored in macOS Keychain.",
+                "Associate each mod with its BG3 Nexus page in the mod Detail Panel, or use Tools > Nexus URL Import for bulk mappings.",
+                "Open Mod Updates and click Check Nexus, use Check Updates in the Mods action bar, or enable checking on app launch in Settings.",
+            ])
+            helpText("""
+            The app extracts the numeric mod ID from each stored URL, queries Nexus for the mod-page \
+            version, and compares it with the version in the installed PAK metadata. Results are cached \
+            for one hour to reduce requests and respect rate limits.
+            """)
+
+            helpHeading("Version Results")
+            helpBulletList([
+                "Update Available — Both versions are numeric and Nexus reports a later version.",
+                "Version Differs — The values differ but cannot be ordered safely, or the installed version is later.",
+                "Up to Date — The normalized installed and Nexus versions match.",
+            ])
+
+            helpHeading("Optional and Alternate Nexus Files")
+            helpText("""
+            A Nexus page can contain optional, alternate, or extra files with versions that do not match \
+            the page's primary version. For these intentional differences, open the row's ellipsis menu:
+            """)
+            helpBulletList([
+                "Ignore This Version — Hides only the currently reported Nexus page version. A different future page version appears again.",
+                "Disable Checks for This Mod — Excludes the mod from Nexus checks until you choose Enable Checks.",
+                "Suppressed notices remain listed in Mod Updates so they can always be reversed.",
+                "Ignored notices are also removed from mod badges, sidebar counts, details, and Launch Readiness advisories.",
+            ])
+
+            helpHeading("Installing an Update")
+            helpNumberedList([
+                "Choose Download in Browser and download the desired PAK or archive from Nexus.",
+                "Choose Update from Archive in Mod Updates or the mod Detail Panel.",
+                "Review the candidate version, UUID, installed path, checksum, and preserved active position.",
+                "Choose Install Update. The app creates a durable backup, replaces the file transactionally, verifies the result, and refreshes discovery.",
+            ])
+            helpText("""
+            Candidates with the wrong UUID, multiple PAKs, or missing identifying metadata are rejected \
+            before the installed file changes. If installation fails after staging, the app attempts an \
+            automatic rollback.
+            """)
+
+            helpHeading("Update History and Rollback")
+            helpText("""
+            Successful transactional installs appear in Update History with the old/new versions, \
+            archive name, timestamp, and durable backup. “Restore Previous” replaces the installed PAK \
+            from that backup and records the restored state. These backups are separate from \
+            modsettings.lsx backups.
             """)
         }
     }
@@ -710,6 +871,20 @@ struct HelpView: View {
             for debugging mod issues, verifying mod contents, or inspecting unfamiliar PAK files.
             """)
 
+            helpHeading("Nexus URL Import")
+            helpText("""
+            Nexus update checking requires a Nexus page URL for each mod. Nexus URL Import accepts \
+            CSV, TSV, JSON, or plain-text files and matches entries to installed mods by UUID or a \
+            conservative normalized-name comparison. Review matched and unmatched rows before choosing \
+            Apply Matches; ambiguous or short fuzzy names are intentionally left unmatched.
+            """)
+            helpBulletList([
+                "CSV/TSV — Two columns containing a mod name or UUID and a Nexus URL.",
+                "JSON — An array of named URL entries or a UUID-to-URL dictionary.",
+                "TXT — One BG3 Nexus mod URL per line.",
+                "Applying matches stores URLs locally; it does not download files or send your mod list to Nexus.",
+            ])
+
             helpHeading("Extract to Folder")
             helpText("""
             Right-click any mod (active or inactive) and choose \"Extract to Folder...\" to \
@@ -758,6 +933,18 @@ struct HelpView: View {
                 "Backup retention — How long to keep automatic backups (7, 14, 30, or 90 days, or forever).",
                 "Clean Old Backups — Manually delete backups older than the retention period.",
             ])
+
+            helpHeading("Nexus Mods")
+            helpBulletList([
+                "API Key — Stores a personal Nexus API key in macOS Keychain for version-information requests.",
+                "Get API Key from Nexus Mods — Opens the Nexus account API-access page in your browser.",
+                "Check for updates on app launch — Checks every enabled mod that has a stored Nexus URL. Disabled by default.",
+                "Removing the API key disables metadata checks but does not remove stored per-mod Nexus URLs, ignored versions, or disabled-check preferences.",
+            ])
+            helpText("""
+            The API key is not used for direct downloads. See Mod Updates & Nexus for URL setup, \
+            version comparison, optional-file suppression, transactional installation, and rollback.
+            """)
 
             helpHeading("Paths")
             helpText("""

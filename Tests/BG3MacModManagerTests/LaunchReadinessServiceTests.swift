@@ -88,6 +88,28 @@ final class LaunchReadinessServiceTests: XCTestCase {
         XCTAssertEqual(report.overallState, .ready)
     }
 
+    func testSuppressedNexusResultDoesNotProduceFinding() async {
+        let result = NexusUpdateResult(
+            modUUID: "optional-file",
+            nexusModID: 42,
+            installedVersion: "1.0.0",
+            latestVersion: "2.0.0",
+            latestName: "Base Mod Page",
+            updatedDate: nil,
+            nexusURL: "https://www.nexusmods.com/baldursgate3/mods/42",
+            checkedDate: Date()
+        )
+
+        let report = await LaunchReadinessService().evaluate(snapshot(
+            nexusConfigured: true,
+            nexusResults: [result],
+            suppressedNexusResultIDs: ["optional-file"]
+        ))
+
+        XCTAssertFalse(report.findings.contains { $0.category == .updates })
+        XCTAssertEqual(report.overallState, .ready)
+    }
+
     func testEquivalentSnapshotsHaveStableIdentity() async throws {
         let pakURL = try writeValidPAK()
         let mod = makeModInfo(uuid: "stable", name: "Stable Mod", pakFilePath: pakURL)
@@ -106,7 +128,8 @@ final class LaunchReadinessServiceTests: XCTestCase {
         validationWarnings: [ModWarning] = [],
         hasUnsavedChanges: Bool = false,
         nexusConfigured: Bool = false,
-        nexusResults: [NexusUpdateResult] = []
+        nexusResults: [NexusUpdateResult] = [],
+        suppressedNexusResultIDs: Set<String> = []
     ) -> LaunchReadinessSnapshot {
         LaunchReadinessSnapshot(
             activeMods: activeMods,
@@ -120,7 +143,8 @@ final class LaunchReadinessServiceTests: XCTestCase {
             gameRunning: false,
             nexusConfigured: nexusConfigured,
             nexusCheckInProgress: false,
-            nexusResults: nexusResults
+            nexusResults: nexusResults,
+            suppressedNexusResultIDs: suppressedNexusResultIDs
         )
     }
 

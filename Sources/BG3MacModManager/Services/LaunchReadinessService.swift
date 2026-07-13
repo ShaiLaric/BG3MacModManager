@@ -212,7 +212,12 @@ actor LaunchReadinessService {
 
         let latestCheck = snapshot.nexusResults.map(\.checkedDate).max() ?? .distantPast
         let isStale = now().timeIntervalSince(latestCheck) > NexusAPIService.cacheMaxAge
-        let changed = snapshot.nexusResults.filter { $0.hasUpdate || $0.versionDiffers }
+        let changed = snapshot.nexusResults.filter {
+            ($0.hasUpdate || $0.versionDiffers)
+                && !snapshot.suppressedNexusResultIDs.contains(
+                    ModIdentity.comparisonKey($0.modUUID)
+                )
+        }
         if !changed.isEmpty {
             findings.append(Self.makeFinding(
                 severity: .information,

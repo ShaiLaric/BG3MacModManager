@@ -7,9 +7,23 @@ struct ModUpdatesView: View {
     @State private var restoreCandidate: ModUpdateHistoryRecord?
 
     private var updateResults: [NexusUpdateResult] {
-        appState.nexusUpdateResults.values
-            .filter { $0.hasUpdate || $0.versionDiffers }
+        appState.nexusAttentionResults
             .sorted { $0.latestName.localizedCaseInsensitiveCompare($1.latestName) == .orderedAscending }
+    }
+
+    private var ignoredResults: [NexusUpdateResult] {
+        appState.nexusUpdateResults.values
+            .filter { appState.isNexusVersionIgnored($0) }
+            .sorted { $0.latestName.localizedCaseInsensitiveCompare($1.latestName) == .orderedAscending }
+    }
+
+    private var disabledMods: [ModInfo] {
+        (appState.activeMods + appState.inactiveMods)
+            .filter {
+                appState.nexusURLService.url(for: $0.uuid) != nil
+                    && appState.isNexusCheckDisabled(for: $0.uuid)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     var body: some View {
@@ -20,6 +34,7 @@ struct ModUpdatesView: View {
                 LazyVStack(alignment: .leading, spacing: 20) {
                     acquisitionStatus
                     nexusResultsSection
+                    suppressedResultsSection
                     historySection
                 }
                 .padding()
@@ -113,10 +128,79 @@ struct ModUpdatesView: View {
                             Button("Download in Browser") { appState.openNexusPage(for: mod) }
                             Button("Update from Archive…") { appState.beginModUpdate(for: mod) }
                                 .buttonStyle(.borderedProminent)
+                            Menu {
+                                Button {
+                                    appState.ignoreNexusVersion(result)
+                                } label: {
+                                    Label("Ignore This Version", systemImage: "eye.slash")
+                                }
+                                Button {
+                                    appState.setNexusChecksDisabled(true, for: mod)
+                                } label: {
+                                    Label("Disable Checks for This Mod", systemImage: "pause.circle")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                            }
+                            .menuStyle(.borderlessButton)
+                            .help("Ignore this reported version or disable Nexus checks for this mod")
                         } else {
                             Text("Not installed")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(10)
+                    .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var suppressedResultsSection: some View {
+        if !ignoredResults.isEmpty || !disabledMods.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Suppressed Update Notices")
+                    .font(.headline)
+                Text("Use these controls for optional or alternate Nexus files whose version does not match the main mod page.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(ignoredResults) { result in
+                    HStack {
+                        Image(systemName: "eye.slash.circle.fill")
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(result.latestName)
+                                .fontWeight(.medium)
+                            Text("Ignoring Nexus version \(result.latestVersion); a different future version will appear again.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Stop Ignoring") {
+                            appState.stopIgnoringNexusVersion(for: result.modUUID)
+                        }
+                    }
+                    .padding(10)
+                    .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                }
+
+                ForEach(disabledMods) { mod in
+                    HStack {
+                        Image(systemName: "pause.circle.fill")
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(mod.name)
+                                .fontWeight(.medium)
+                            Text("Nexus update checks are disabled until you re-enable them.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Enable Checks") {
+                            appState.setNexusChecksDisabled(false, for: mod)
                         }
                     }
                     .padding(10)

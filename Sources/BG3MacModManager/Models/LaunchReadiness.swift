@@ -133,6 +133,7 @@ struct LaunchReadinessSnapshot: Sendable {
     let nexusConfigured: Bool
     let nexusCheckInProgress: Bool
     let nexusResults: [NexusUpdateResult]
+    let suppressedNexusResultIDs: Set<String>
     let additionalFindings: [ReadinessFinding]
 
     init(
@@ -148,6 +149,7 @@ struct LaunchReadinessSnapshot: Sendable {
         nexusConfigured: Bool,
         nexusCheckInProgress: Bool,
         nexusResults: [NexusUpdateResult],
+        suppressedNexusResultIDs: Set<String> = [],
         additionalFindings: [ReadinessFinding] = []
     ) {
         self.activeMods = activeMods
@@ -162,6 +164,7 @@ struct LaunchReadinessSnapshot: Sendable {
         self.nexusConfigured = nexusConfigured
         self.nexusCheckInProgress = nexusCheckInProgress
         self.nexusResults = nexusResults
+        self.suppressedNexusResultIDs = suppressedNexusResultIDs
         self.additionalFindings = additionalFindings
     }
 }

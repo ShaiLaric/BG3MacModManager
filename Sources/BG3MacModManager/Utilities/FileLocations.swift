@@ -117,6 +117,10 @@ enum FileLocations {
         appSupportDirectory.appendingPathComponent("mod_update_history.json")
     }
 
+    static var nexusUpdatePreferencesFile: URL {
+        appSupportDirectory.appendingPathComponent("nexus_update_preferences.json")
+    }
+
     static var modUpdateBackupsDirectory: URL {
         appSupportDirectory.appendingPathComponent("ModUpdateBackups")
     }

@@ -426,7 +426,7 @@ struct SidebarItemRow: View {
         case .readiness:
             return appState.readinessReport?.criticalFindings.count ?? 0
         case .updates:
-            return appState.nexusUpdateResults.values.filter { $0.hasUpdate || $0.versionDiffers }.count
+            return appState.nexusAttentionCount
         default:
             return 0
         }
