@@ -94,6 +94,14 @@ final class NexusURLImportServiceTests: XCTestCase {
         XCTAssertEqual(entries[0].identifier, "ModB")
     }
 
+    func testParseCSVSupportsQuotedCommaAndEscapedQuotes() {
+        let csv = "\"Cool, \\\"Quoted\\\" Mod\",https://www.nexusmods.com/baldursgate3/mods/222"
+            .replacingOccurrences(of: "\\\"", with: "\"\"")
+        let entries = service.parseCSVContent(csv, separator: ",")
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].identifier, "Cool, \"Quoted\" Mod")
+    }
+
     // MARK: - JSON Parsing
 
     func testParseJSONArrayFormat() throws {
@@ -177,6 +185,29 @@ final class NexusURLImportServiceTests: XCTestCase {
         )
         XCTAssertEqual(result.matched.count, 1)
         XCTAssertEqual(result.matched[0].matchType, .fuzzyName)
+    }
+
+    func testAmbiguousFuzzyNameIsNotAssigned() throws {
+        let mods = [
+            makeTestMod(uuid: "uuid-1", name: "Cool Mod Extended"),
+            makeTestMod(uuid: "uuid-2", name: "Cool Mod Plus"),
+        ]
+        let result = try service.parseAndMatch(
+            content: "Cool Mod,https://www.nexusmods.com/baldursgate3/mods/111",
+            format: .csv,
+            installedMods: mods
+        )
+        XCTAssertTrue(result.matched.isEmpty)
+        XCTAssertEqual(result.unmatched.count, 1)
+    }
+
+    func testShortFuzzyNameIsNotAssigned() throws {
+        let result = try service.parseAndMatch(
+            content: "Co,https://www.nexusmods.com/baldursgate3/mods/111",
+            format: .csv,
+            installedMods: [makeTestMod(uuid: "uuid-1", name: "Cool Mod")]
+        )
+        XCTAssertTrue(result.matched.isEmpty)
     }
 
     func testUnmatchedEntries() throws {

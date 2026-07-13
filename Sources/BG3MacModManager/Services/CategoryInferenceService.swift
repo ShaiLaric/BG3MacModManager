@@ -14,7 +14,7 @@ final class CategoryInferenceService {
     /// 3. Name-based heuristics
     /// Returns nil if no category can be inferred (mod stays unsorted).
     func inferCategory(for mod: ModInfo) -> ModCategory? {
-        if let override = userOverrides[mod.uuid] {
+        if let override = userOverrides[ModIdentity.comparisonKey(mod.uuid)] {
             return override
         }
         if let tagBased = inferFromTags(mod.tags) {
@@ -27,18 +27,27 @@ final class CategoryInferenceService {
     }
 
     /// Set a user override for a mod's category. Pass nil to clear.
-    func setOverride(_ category: ModCategory?, for modUUID: String) {
+    @discardableResult
+    func setOverride(_ category: ModCategory?, for modUUID: String) -> Bool {
+        let previous = userOverrides
+        let modUUID = ModIdentity.comparisonKey(modUUID)
         if let category = category {
             userOverrides[modUUID] = category
         } else {
             userOverrides.removeValue(forKey: modUUID)
         }
-        saveOverrides()
+        do {
+            try saveOverrides()
+            return true
+        } catch {
+            userOverrides = previous
+            return false
+        }
     }
 
     /// Returns the user override for a mod, if any.
     func override(for modUUID: String) -> ModCategory? {
-        userOverrides[modUUID]
+        userOverrides[ModIdentity.comparisonKey(modUUID)]
     }
 
     // MARK: - User Overrides (Persisted)
@@ -58,17 +67,16 @@ final class CategoryInferenceService {
               let decoded = try? JSONDecoder().decode([String: ModCategory].self, from: data) else {
             return
         }
-        userOverrides = decoded
+        userOverrides = Dictionary(
+            decoded.map { (ModIdentity.comparisonKey($0.key), $0.value) },
+            uniquingKeysWith: { _, latest in latest }
+        )
     }
 
-    private func saveOverrides() {
-        do {
-            try FileLocations.ensureDirectoryExists(overridesURL.deletingLastPathComponent())
-            let data = try JSONEncoder().encode(userOverrides)
-            try data.write(to: overridesURL, options: .atomic)
-        } catch {
-            // Non-fatal: overrides just won't persist
-        }
+    private func saveOverrides() throws {
+        try FileLocations.ensureDirectoryExists(overridesURL.deletingLastPathComponent())
+        let data = try JSONEncoder().encode(userOverrides)
+        try data.write(to: overridesURL, options: .atomic)
     }
 
     // MARK: - Tag Heuristics

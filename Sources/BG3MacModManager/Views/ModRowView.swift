@@ -6,6 +6,7 @@ import SwiftUI
 struct ModRowView: View {
     let mod: ModInfo
     let isActive: Bool
+    var requestPositionedActivation: ((ModInfo) -> Void)? = nil
     @EnvironmentObject var appState: AppState
     var body: some View {
         HStack(spacing: 10) {
@@ -128,14 +129,19 @@ struct ModRowView: View {
                 .buttonStyle(.plain)
                 .help("Deactivate")
             } else if !isActive {
-                Button {
-                    appState.activateMod(mod)
+                Menu {
+                    Button("Activate at Position…") {
+                        requestPositionedActivation?(mod)
+                    }
                 } label: {
                     Image(systemName: "plus.circle")
                         .foregroundStyle(.green)
+                } primaryAction: {
+                    appState.activateMod(mod)
                 }
-                .buttonStyle(.plain)
-                .help("Activate")
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Click to activate at the end; open the menu to choose a load-order position")
             }
         }
         .padding(.vertical, 2)

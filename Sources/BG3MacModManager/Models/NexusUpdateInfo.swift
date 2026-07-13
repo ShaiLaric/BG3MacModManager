@@ -3,7 +3,7 @@
 import Foundation
 
 /// Cached result of checking a mod's update status on Nexus Mods.
-struct NexusUpdateResult: Codable, Identifiable {
+struct NexusUpdateResult: Codable, Identifiable, Sendable {
     let modUUID: String
     let nexusModID: Int
     let installedVersion: String
@@ -15,11 +15,66 @@ struct NexusUpdateResult: Codable, Identifiable {
 
     var id: String { modUUID }
 
-    /// Whether the Nexus version differs from the installed version.
-    /// Uses simple string comparison — Nexus version strings are free-form text.
+    enum VersionStatus {
+        case current
+        case newerAvailable
+        case versionDiffers
+    }
+
+    var versionStatus: VersionStatus {
+        let installed = normalizedVersion(installedVersion)
+        let latest = normalizedVersion(latestVersion)
+        guard !latestVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .current
+        }
+        if let installed, let latest {
+            if latest == installed { return .current }
+            return latest > installed ? .newerAvailable : .versionDiffers
+        }
+        return latestVersion.caseInsensitiveCompare(installedVersion) == .orderedSame
+            ? .current
+            : .versionDiffers
+    }
+
+    /// True only when both values can be ordered and Nexus reports a newer version.
     var hasUpdate: Bool {
-        !latestVersion.isEmpty &&
-        latestVersion.lowercased() != installedVersion.lowercased()
+        versionStatus == .newerAvailable
+    }
+
+    var versionDiffers: Bool {
+        versionStatus == .versionDiffers
+    }
+
+    private func normalizedVersion(_ value: String) -> Version64? {
+        var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.hasPrefix("v") { normalized.removeFirst() }
+        let parts = normalized.split(separator: ".", omittingEmptySubsequences: false)
+        guard !parts.isEmpty,
+              parts.count <= 4,
+              parts.allSatisfy({ !$0.isEmpty && Int($0) != nil }) else { return nil }
+        return Version64(versionString: normalized)
+    }
+}
+
+struct NexusUpdateCandidate: Sendable {
+    let modUUID: String
+    let installedVersion: String
+    let nexusURL: String
+}
+
+struct NexusUpdateCheckReport: Sendable {
+    let results: [String: NexusUpdateResult]
+    let checkedCount: Int
+    let cachedCount: Int
+    let failedCount: Int
+    let skippedCount: Int
+    let rateLimited: Bool
+    let totalCount: Int
+    let cachePersisted: Bool
+
+    var isComplete: Bool {
+        !rateLimited && skippedCount == 0 && failedCount == 0
+            && checkedCount + cachedCount == totalCount
     }
 }
 

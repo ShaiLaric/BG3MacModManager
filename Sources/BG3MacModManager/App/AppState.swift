@@ -144,7 +144,7 @@ final class AppState: ObservableObject {
             checkForExternalModSettingsChange()
 
             // Auto-check for Nexus updates if enabled
-            if UserDefaults.standard.bool(forKey: "autoCheckNexusUpdates"),
+            if UserDefaults.standard.bool(forKey: AppPreferenceKey.autoCheckNexusUpdates),
                nexusAPIService.apiKey != nil {
                 await checkForNexusUpdates()
             }
@@ -165,15 +165,30 @@ final class AppState: ObservableObject {
 
     func refreshMods() async {
         do {
-            let result = try discoveryService.discoverModsWithState()
-            activeMods = result.active.map { inferCategory(for: $0) }
-            inactiveMods = result.inactive.map { inferCategory(for: $0) }
+            let service = discoveryService
+            let result = try await Task.detached(priority: .userInitiated) {
+                try service.discoverModsWithState()
+            }.value
+            if hasUnsavedChanges {
+                let merged = ImportDiscoveryMerger.merge(
+                    previousActive: activeMods,
+                    previousInactive: inactiveMods,
+                    hadUnsavedChanges: true,
+                    discovered: result.active + result.inactive
+                )
+                activeMods = merged.active.map { inferCategory(for: $0) }
+                inactiveMods = merged.inactive.map { inferCategory(for: $0) }
+            } else {
+                activeMods = result.active.map { inferCategory(for: $0) }
+                inactiveMods = result.inactive.map { inferCategory(for: $0) }
+                hasUnsavedChanges = false
+            }
+            duplicateGroups = result.duplicateGroups
             statusMessage = "Found \(activeMods.count) active, \(inactiveMods.count) inactive mods"
-            hasUnsavedChanges = false
             runValidation()
             if !hasPerformedInitialDuplicateCheck {
                 hasPerformedInitialDuplicateCheck = true
-                detectDuplicateGroups()
+                showDuplicateResolver = !duplicateGroups.isEmpty
             }
         } catch {
             showError(error)
@@ -182,7 +197,9 @@ final class AppState: ObservableObject {
 
     func refreshProfiles() async {
         do {
-            profiles = try profileService.listProfiles()
+            profiles = try await Task.detached {
+                try ProfileService().listProfiles()
+            }.value
         } catch {
             showError(error)
         }
@@ -190,7 +207,9 @@ final class AppState: ObservableObject {
 
     func refreshBackups() async {
         do {
-            backups = try backupService.listBackups()
+            backups = try await Task.detached {
+                try BackupService().listBackups()
+            }.value
         } catch {
             showError(error)
         }
@@ -242,24 +261,38 @@ final class AppState: ObservableObject {
 
     // MARK: - Mod Management
 
-    /// Activate a mod (move from inactive to active).
-    func activateMod(_ mod: ModInfo) {
-        guard let index = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
-        saveSnapshot()
-        inactiveMods.remove(at: index)
-        activeMods.append(mod)
-        hasUnsavedChanges = true
-        runValidation()
+    /// Activate a mod, optionally at a one-based load-order position.
+    /// A nil position preserves the traditional append-to-end behavior.
+    func activateMod(_ mod: ModInfo, atLoadOrderPosition position: Int? = nil) {
+        let insertionIndex: Int
+        if let position {
+            insertionIndex = min(max(position - 1, 0), activeMods.count)
+        } else {
+            insertionIndex = activeMods.count
+        }
+
+        guard activateInactiveMod(mod, at: insertionIndex) else { return }
+        if position != nil {
+            statusMessage = "Activated \(mod.name) at load order position \(insertionIndex + 1)"
+        }
     }
 
-    /// Activate a mod at a specific position in the active load order.
+    /// Activate a mod at a zero-based insertion index used by drag and drop.
     func activateModAtPosition(_ mod: ModInfo, at index: Int) {
-        guard let inactiveIndex = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) else { return }
+        _ = activateInactiveMod(mod, at: min(max(index, 0), activeMods.count))
+    }
+
+    @discardableResult
+    private func activateInactiveMod(_ mod: ModInfo, at insertionIndex: Int) -> Bool {
+        guard let inactiveIndex = inactiveMods.firstIndex(where: { $0.uuid == mod.uuid }) else {
+            return false
+        }
         saveSnapshot()
-        inactiveMods.remove(at: inactiveIndex)
-        activeMods.insert(mod, at: min(index, activeMods.count))
+        let activatedMod = inactiveMods.remove(at: inactiveIndex)
+        activeMods.insert(activatedMod, at: insertionIndex)
         hasUnsavedChanges = true
         runValidation()
+        return true
     }
 
     /// Deactivate a mod (move from active to inactive).
@@ -391,33 +424,62 @@ final class AppState: ObservableObject {
             return
         }
 
-        await performSave()
+        _ = await performSave()
     }
 
     /// Actually write modsettings.lsx (called directly or after user confirms warnings).
-    func performSave() async {
+    /// Returns true only when the new load order was written successfully.
+    @discardableResult
+    func performSave() async -> Bool {
+        let preferences = SavePreferences()
+        let settingsExisted = FileLocations.modSettingsExists
+        let wasLocked = settingsExisted && backupService.isModSettingsLocked()
+
         do {
             deleteModCrashSanityCheckIfNeeded()
 
-            if FileLocations.modSettingsExists {
+            if settingsExisted && preferences.autoBackup {
                 try backupService.backupModSettings()
             }
 
-            backupService.unlockModSettings()
+            if settingsExisted && !backupService.unlockModSettings() && wasLocked {
+                throw SaveError.unlockFailed
+            }
             try modSettingsService.write(activeMods: activeMods)
             recordModSettingsHash()
 
-            let locked = backupService.lockModSettings()
-            statusMessage = locked
-                ? "Saved \(activeMods.count) mods to modsettings.lsx (locked)"
-                : "Saved \(activeMods.count) mods to modsettings.lsx (WARNING: lock failed)"
+            if preferences.lockAfterSave {
+                let locked = backupService.lockModSettings()
+                statusMessage = locked
+                    ? "Saved \(activeMods.count) mods to modsettings.lsx (locked)"
+                    : "Saved \(activeMods.count) mods to modsettings.lsx (WARNING: lock failed)"
+            } else {
+                statusMessage = "Saved \(activeMods.count) mods to modsettings.lsx"
+            }
 
             hasUnsavedChanges = false
+
+            if preferences.autoBackup && preferences.backupRetentionDays > 0 {
+                do {
+                    try backupService.pruneBackups(
+                        olderThanDays: preferences.backupRetentionDays
+                    )
+                } catch {
+                    statusMessage += " (old-backup cleanup failed)"
+                }
+            }
+
             await refreshBackups()
             showSaveConfirmation = false
             pendingSaveWarnings = []
+            return true
         } catch {
+            // A failed write must not silently change the file's prior lock state.
+            if wasLocked {
+                _ = backupService.lockModSettings()
+            }
             showError(error)
+            return false
         }
     }
 
@@ -438,19 +500,24 @@ final class AppState: ObservableObject {
         // Reconstruct active/inactive lists from the profile
         let allMods = activeMods + inactiveMods
         var newActive: [ModInfo] = []
-        var remainingUUIDs = Set(allMods.map(\.uuid))
+        var remainingUUIDs = Set(allMods.map { ModIdentity.comparisonKey($0.uuid) })
         var missingMods: [MissingModInfo] = []
         var matchedCount = 0
 
         for uuid in profile.activeModUUIDs {
-            if let mod = allMods.first(where: { $0.uuid == uuid }) {
+            let uuidKey = ModIdentity.comparisonKey(uuid)
+            if let mod = allMods.first(where: {
+                ModIdentity.comparisonKey($0.uuid) == uuidKey
+            }) {
                 newActive.append(mod)
-                remainingUUIDs.remove(uuid)
+                remainingUUIDs.remove(uuidKey)
                 matchedCount += 1
-            } else if let entry = profile.mods.first(where: { $0.uuid == uuid }) {
+            } else if let entry = profile.mods.first(where: {
+                ModIdentity.comparisonKey($0.uuid) == uuidKey
+            }) {
                 // Create a placeholder mod from the profile entry
                 let mod = ModInfo(
-                    uuid: entry.uuid,
+                    uuid: uuidKey,
                     folder: entry.folder,
                     name: entry.name,
                     author: "Unknown",
@@ -467,15 +534,17 @@ final class AppState: ObservableObject {
                 )
                 newActive.append(mod)
                 missingMods.append(MissingModInfo(
-                    id: entry.uuid,
+                    id: uuidKey,
                     name: entry.name,
-                    uuid: entry.uuid,
-                    nexusURL: nexusURLService.url(for: entry.uuid)
+                    uuid: uuidKey,
+                    nexusURL: nexusURLService.url(for: uuidKey)
                 ))
             }
         }
 
-        let newInactive = allMods.filter { remainingUUIDs.contains($0.uuid) }
+        let newInactive = allMods.filter {
+            remainingUUIDs.contains(ModIdentity.comparisonKey($0.uuid))
+        }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
         activeMods = newActive
@@ -496,8 +565,8 @@ final class AppState: ObservableObject {
             statusMessage = "Loaded profile '\(profile.name)' (\(matchedCount) matched, \(missingMods.count) missing)"
         }
 
-        if UserDefaults.standard.bool(forKey: "autoSaveOnProfileLoad") {
-            await performSave()
+        if UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSaveOnProfileLoad) {
+            _ = await performSave()
         }
     }
 
@@ -540,6 +609,7 @@ final class AppState: ObservableObject {
     func restoreBackup(_ backup: BackupService.Backup) async {
         do {
             try backupService.restore(backup: backup)
+            hasUnsavedChanges = false
             await refreshMods()
             statusMessage = "Restored from backup"
         } catch {
@@ -559,8 +629,11 @@ final class AppState: ObservableObject {
     // MARK: - Game Launch
 
     func launchGame() async {
-        if UserDefaults.standard.bool(forKey: "autoSaveBeforeLaunch") && hasUnsavedChanges {
-            await performSave()
+        if UserDefaults.standard.bool(forKey: AppPreferenceKey.autoSaveBeforeLaunch),
+           hasUnsavedChanges,
+           !(await performSave()) {
+            statusMessage = "Launch cancelled because the load order could not be saved"
+            return
         }
         do {
             try launchService.launchGame()
@@ -583,39 +656,22 @@ final class AppState: ObservableObject {
         isImporting = true
         defer { isImporting = false }
 
-        var totalDuplicates: [String] = []
-        var importedCount = 0
+        let modsFolder = FileLocations.modsFolder
+        let importResult = await Task.detached(priority: .userInitiated) {
+            ModImportService().importMods(from: urls, to: modsFolder)
+        }.value
 
-        for url in urls {
-            do {
-                let modsFolder = FileLocations.modsFolder
-                try FileLocations.ensureDirectoryExists(modsFolder)
-
-                let ext = url.pathExtension.lowercased()
-
-                if ext == "pak" {
-                    let destination = modsFolder.appendingPathComponent(url.lastPathComponent)
-                    if FileManager.default.fileExists(atPath: destination.path) {
-                        totalDuplicates.append(url.lastPathComponent)
-                        try FileManager.default.removeItem(at: destination)
-                    }
-                    try FileManager.default.copyItem(at: url, to: destination)
-                    importedCount += 1
-                } else if ArchiveService.ArchiveFormat(
-                    pathExtension: ext, fullFilename: url.lastPathComponent
-                ) != nil {
-                    let replaced = try await importArchive(url)
-                    totalDuplicates.append(contentsOf: replaced)
-                    importedCount += 1
-                } else {
-                    throw ArchiveService.ArchiveError.unsupportedFormat(ext)
-                }
-            } catch {
-                showError(error)
-            }
+        if !importResult.errors.isEmpty {
+            errorMessage = importResult.errors.joined(separator: "\n")
+            showError = true
         }
 
-        guard importedCount > 0 else { return }
+        guard importResult.importedCount > 0 else {
+            if !importResult.alreadyPresentFilenames.isEmpty {
+                statusMessage = "Selected mod file(s) are already in the Mods folder"
+            }
+            return
+        }
 
         // Capture the latest UI state after file work finishes in case an archive import yielded.
         let currentActiveMods = activeMods
@@ -626,7 +682,10 @@ final class AppState: ObservableObject {
         do {
             // Importing changes the files on disk, but it must not reload activation state from
             // modsettings.lsx: the in-memory load order may contain unsaved user changes.
-            let discoveredMods = try discoveryService.discoverMods()
+            let service = discoveryService
+            let discoveredMods = try await Task.detached(priority: .userInitiated) {
+                try service.discoverCanonicalMods()
+            }.value
             let merged = ImportDiscoveryMerger.merge(
                 previousActive: currentActiveMods,
                 previousInactive: currentInactiveMods,
@@ -636,6 +695,7 @@ final class AppState: ObservableObject {
             activeMods = merged.active.map { inferCategory(for: $0) }
             inactiveMods = merged.inactive.map { inferCategory(for: $0) }
             hasUnsavedChanges = merged.hasUnsavedChanges
+            await refreshDuplicateGroups()
 
             let newUUIDs = Set(merged.newMods.map(\.uuid))
             newMods = inactiveMods.filter { newUUIDs.contains($0.uuid) }
@@ -645,91 +705,16 @@ final class AppState: ObservableObject {
             return
         }
 
-        if !totalDuplicates.isEmpty {
-            statusMessage = "Imported \(importedCount) file(s) (replaced \(totalDuplicates.count) existing)"
+        if !importResult.replacedFilenames.isEmpty {
+            statusMessage = "Imported \(importResult.importedCount) file(s) (replaced \(importResult.replacedFilenames.count) existing)"
         } else {
-            statusMessage = "Imported \(importedCount) file(s)"
+            statusMessage = "Imported \(importResult.importedCount) file(s)"
         }
 
         if !newMods.isEmpty {
             lastImportedMods = newMods
             showImportActivation = true
         }
-    }
-
-    /// Extract an archive and copy its PAK files to the Mods folder.
-    /// Returns the list of filenames that were replaced (already existed).
-    private func importArchive(_ archiveURL: URL) async throws -> [String] {
-        let modsFolder = FileLocations.modsFolder
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        try archiveService.extract(archive: archiveURL, to: tempDir)
-
-        // Collect all PAK and info.json files from the extracted content
-        var pakFiles: [URL] = []
-        var infoJsonFiles: [URL] = []
-
-        let enumerator = FileManager.default.enumerator(at: tempDir, includingPropertiesForKeys: nil)
-        while let fileURL = enumerator?.nextObject() as? URL {
-            if fileURL.pathExtension.lowercased() == "pak" {
-                pakFiles.append(fileURL)
-            } else if fileURL.lastPathComponent.lowercased() == "info.json" {
-                infoJsonFiles.append(fileURL)
-            }
-        }
-
-        var duplicatesReplaced: [String] = []
-
-        // For each PAK, copy it and find the nearest info.json to pair with it
-        for pakURL in pakFiles {
-            let pakFilename = pakURL.lastPathComponent
-            let baseName = pakURL.deletingPathExtension().lastPathComponent
-
-            // Copy PAK to Mods folder
-            let pakDestination = modsFolder.appendingPathComponent(pakFilename)
-            if FileManager.default.fileExists(atPath: pakDestination.path) {
-                duplicatesReplaced.append(pakFilename)
-                try FileManager.default.removeItem(at: pakDestination)
-            }
-            try FileManager.default.copyItem(at: pakURL, to: pakDestination)
-
-            // Find the nearest info.json for this PAK (same dir or parent within the ZIP)
-            if let infoJson = findNearestInfoJson(for: pakURL, in: infoJsonFiles, zipRoot: tempDir) {
-                // Rename to <baseName>.json so discovery can match it unambiguously to this PAK
-                let jsonDestination = modsFolder.appendingPathComponent("\(baseName).json")
-                if FileManager.default.fileExists(atPath: jsonDestination.path) {
-                    try FileManager.default.removeItem(at: jsonDestination)
-                }
-                try FileManager.default.copyItem(at: infoJson, to: jsonDestination)
-            }
-        }
-
-        // Clean up any stale bare "info.json" in the Mods folder that could pollute discovery
-        let staleInfoJson = modsFolder.appendingPathComponent("info.json")
-        try? FileManager.default.removeItem(at: staleInfoJson)
-
-        return duplicatesReplaced
-    }
-
-    /// Find the nearest info.json to a PAK file within the extracted ZIP.
-    /// Checks same directory first, then parent directories up to the ZIP root.
-    private func findNearestInfoJson(for pakURL: URL, in infoJsonFiles: [URL], zipRoot: URL) -> URL? {
-        var searchDir = pakURL.deletingLastPathComponent()
-        let rootPath = zipRoot.standardizedFileURL.path
-
-        while searchDir.standardizedFileURL.path.hasPrefix(rootPath) {
-            if let match = infoJsonFiles.first(where: {
-                $0.deletingLastPathComponent().standardizedFileURL.path == searchDir.standardizedFileURL.path
-            }) {
-                return match
-            }
-            let parent = searchDir.deletingLastPathComponent()
-            if parent.standardizedFileURL.path == searchDir.standardizedFileURL.path { break }
-            searchDir = parent
-        }
-        return nil
     }
 
     // MARK: - Extract Mod
@@ -757,8 +742,13 @@ final class AppState: ObservableObject {
 
         Task {
             do {
-                try FileManager.default.createDirectory(at: extractFolder, withIntermediateDirectories: true)
-                try PakReader.extractAll(from: pakURL, to: extractFolder)
+                try await Task.detached(priority: .userInitiated) {
+                    try FileManager.default.createDirectory(
+                        at: extractFolder,
+                        withIntermediateDirectories: true
+                    )
+                    try PakReader.extractAll(from: pakURL, to: extractFolder)
+                }.value
                 statusMessage = "Extracted \(mod.name) to \(extractFolder.lastPathComponent)"
                 NSWorkspace.shared.open(extractFolder)
             } catch {
@@ -1083,19 +1073,28 @@ final class AppState: ObservableObject {
 
     /// Groups all mods by UUID where more than one mod shares the same UUID.
     func detectDuplicateGroups() {
-        let allMods = activeMods + inactiveMods
-        var uuidGroups: [String: [ModInfo]] = [:]
+        Task { await refreshDuplicateGroups() }
+    }
 
-        for mod in allMods {
-            uuidGroups[mod.uuid, default: []].append(mod)
-        }
-
-        duplicateGroups = uuidGroups.values
-            .filter { $0.count > 1 }
-            .sorted { ($0.first?.name ?? "") < ($1.first?.name ?? "") }
-
-        if !duplicateGroups.isEmpty {
-            showDuplicateResolver = true
+    private func refreshDuplicateGroups() async {
+        do {
+            let service = discoveryService
+            let physicalMods = try await Task.detached(priority: .userInitiated) {
+                try service.discoverMods()
+            }.value
+            duplicateGroups = Dictionary(grouping: physicalMods) {
+                ModIdentity.comparisonKey($0.uuid)
+            }.values
+                .filter { $0.count > 1 }
+                .map { $0.sorted {
+                    ($0.pakFileName ?? "").localizedCaseInsensitiveCompare(
+                        $1.pakFileName ?? ""
+                    ) == .orderedAscending
+                } }
+                .sorted { ($0.first?.name ?? "") < ($1.first?.name ?? "") }
+            showDuplicateResolver = !duplicateGroups.isEmpty
+        } catch {
+            showError(error)
         }
     }
 
@@ -1110,7 +1109,6 @@ final class AppState: ObservableObject {
             // Also remove the companion info.json if one exists
             removeCompanionInfoJson(for: pakURL)
             await refreshMods()
-            detectDuplicateGroups()
             statusMessage = "Deleted \(mod.pakFileName ?? mod.name)"
         } catch {
             showError(error)
@@ -1231,7 +1229,10 @@ final class AppState: ObservableObject {
 
     /// Set a user category override for a mod and re-infer.
     func setCategoryOverride(_ category: ModCategory?, for mod: ModInfo) {
-        categoryService.setOverride(category, for: mod.uuid)
+        guard categoryService.setOverride(category, for: mod.uuid) else {
+            reportPersistenceFailure("category override")
+            return
+        }
         // Re-apply inference to this mod in whichever list it's in
         if let i = activeMods.firstIndex(where: { $0.uuid == mod.uuid }) {
             activeMods[i].category = category ?? categoryService.inferCategory(for: activeMods[i])
@@ -1295,6 +1296,7 @@ final class AppState: ObservableObject {
                 return
             }
             try backupService.restore(backup: latest)
+            hasUnsavedChanges = false
             await refreshMods()
             recordModSettingsHash()
             statusMessage = "Restored modsettings.lsx from backup (\(latest.displayName))"
@@ -1459,13 +1461,24 @@ final class AppState: ObservableObject {
 
     /// Set the Nexus Mods URL for a mod.
     func setNexusURL(_ url: String?, for mod: ModInfo) {
-        nexusURLService.setURL(url, for: mod.uuid)
+        if let url, !url.isEmpty, !NexusURLImportService().isNexusURL(url) {
+            errorMessage = "Enter a valid BG3 Nexus Mods URL (https://www.nexusmods.com/baldursgate3/mods/…)."
+            showError = true
+            return
+        }
+        guard nexusURLService.setURL(url, for: mod.uuid) else {
+            reportPersistenceFailure("Nexus URL")
+            return
+        }
         objectWillChange.send()
     }
 
     /// Bulk-set Nexus URLs from an import operation.
     func bulkSetNexusURLs(_ urls: [String: String]) {
-        nexusURLService.bulkSetURLs(urls)
+        guard nexusURLService.bulkSetURLs(urls) else {
+            reportPersistenceFailure("Nexus URLs")
+            return
+        }
         objectWillChange.send()
         statusMessage = "Set Nexus URLs for \(urls.count) mod(s)"
     }
@@ -1474,7 +1487,10 @@ final class AppState: ObservableObject {
 
     /// Set or clear a user note for a mod.
     func setModNote(_ text: String?, for mod: ModInfo) {
-        modNotesService.setNote(text, for: mod.uuid)
+        guard modNotesService.setNote(text, for: mod.uuid) else {
+            reportPersistenceFailure("mod note")
+            return
+        }
         objectWillChange.send()
     }
 
@@ -1492,20 +1508,46 @@ final class AppState: ObservableObject {
         defer { isCheckingForUpdates = false }
 
         do {
-            let allMods = activeMods + inactiveMods
-            let results = try await nexusAPIService.checkForUpdates(
-                mods: allMods,
-                nexusURLService: nexusURLService
+            let candidates = (activeMods + inactiveMods).compactMap { mod -> NexusUpdateCandidate? in
+                guard let url = nexusURLService.url(for: mod.uuid) else { return nil }
+                return NexusUpdateCandidate(
+                    modUUID: mod.uuid,
+                    installedVersion: mod.version.description,
+                    nexusURL: url
+                )
+            }
+            guard !candidates.isEmpty else {
+                nexusUpdateResults = [:]
+                statusMessage = "No mods have Nexus URLs to check"
+                return
+            }
+            let report = try await nexusAPIService.checkForUpdates(
+                candidates: candidates
             ) { [weak self] checked, total in
                 Task { @MainActor in
                     self?.updateCheckProgress = (checked, total)
                 }
             }
-            nexusUpdateResults = results
-            let updateCount = results.values.filter(\.hasUpdate).count
-            statusMessage = updateCount > 0
-                ? "Found \(updateCount) mod update(s) available"
-                : "All mods are up to date"
+            nexusUpdateResults = report.results
+            if !report.cachePersisted {
+                errorMessage = "Nexus results were checked but could not be saved to the local cache."
+                showError = true
+            }
+            let updateCount = report.results.values.filter(\.hasUpdate).count
+            let differenceCount = report.results.values.filter(\.versionDiffers).count
+            if !report.isComplete {
+                var details: [String] = []
+                if report.rateLimited { details.append("rate limited") }
+                if report.failedCount > 0 { details.append("\(report.failedCount) failed") }
+                if report.skippedCount > 0 { details.append("\(report.skippedCount) invalid URL") }
+                statusMessage = "Update check incomplete (\(details.joined(separator: ", ")))"
+            } else if updateCount > 0 {
+                statusMessage = "Found \(updateCount) mod update(s) available"
+            } else if differenceCount > 0 {
+                statusMessage = "Nexus versions differ for \(differenceCount) mod(s)"
+            } else {
+                statusMessage = "All checked mods are up to date"
+            }
         } catch {
             showError(error)
         }
@@ -1527,6 +1569,12 @@ final class AppState: ObservableObject {
         errorMessage = error.localizedDescription
         showError = true
         statusMessage = "Error: \(error.localizedDescription)"
+    }
+
+    private func reportPersistenceFailure(_ item: String) {
+        errorMessage = "Could not save the \(item). The previous value was kept."
+        showError = true
+        statusMessage = "Persistence error: \(item) was not saved"
     }
 }
 
@@ -1587,6 +1635,17 @@ enum ImportDiscoveryMerger {
             newMods: newMods,
             hasUnsavedChanges: hadUnsavedChanges
         )
+    }
+}
+
+private enum SaveError: Error, LocalizedError {
+    case unlockFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .unlockFailed:
+            return "Could not unlock modsettings.lsx for saving"
+        }
     }
 }
 

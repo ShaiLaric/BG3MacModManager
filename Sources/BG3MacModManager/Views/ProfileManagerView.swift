@@ -234,7 +234,7 @@ struct ProfileManagerView: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(newProfileName.isEmpty)
+                .disabled(newProfileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(24)

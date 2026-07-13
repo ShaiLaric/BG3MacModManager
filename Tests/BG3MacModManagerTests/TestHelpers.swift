@@ -73,3 +73,50 @@ func makeSEStatus(
         latestLogPath: latestLogPath
     )
 }
+
+/// Creates a minimal valid v18 PAK containing raw, uncompressed entries.
+func makeUncompressedTestPak(entries: [(name: String, contents: Data)]) -> Data {
+    let headerByteCount = 40
+    let entryByteCount = 272
+    let contentsByteCount = entries.reduce(0) { $0 + $1.contents.count }
+    let fileListOffset = UInt64(headerByteCount + contentsByteCount)
+    let fileListSize = UInt32(8 + entryByteCount * entries.count)
+
+    var pak = Data([0x4C, 0x53, 0x50, 0x4B])
+    pak.append(testLittleEndianBytes(UInt32(18)))
+    pak.append(testLittleEndianBytes(fileListOffset))
+    pak.append(testLittleEndianBytes(fileListSize))
+    pak.append(contentsOf: [0, 0])
+    pak.append(Data(count: 16))
+    pak.append(testLittleEndianBytes(UInt16(1)))
+
+    var offsets: [UInt32] = []
+    var nextOffset = UInt32(headerByteCount)
+    for entry in entries {
+        offsets.append(nextOffset)
+        pak.append(entry.contents)
+        nextOffset += UInt32(entry.contents.count)
+    }
+
+    pak.append(testLittleEndianBytes(UInt32(entries.count)))
+    pak.append(testLittleEndianBytes(UInt32(entryByteCount * entries.count)))
+    for (index, entryValue) in entries.enumerated() {
+        var entry = Data(entryValue.name.utf8)
+        precondition(entry.count <= 256)
+        entry.append(Data(count: 256 - entry.count))
+        entry.append(testLittleEndianBytes(offsets[index]))
+        entry.append(testLittleEndianBytes(UInt16(0)))
+        entry.append(contentsOf: [0, 0])
+        entry.append(testLittleEndianBytes(UInt32(entryValue.contents.count)))
+        entry.append(testLittleEndianBytes(UInt32(entryValue.contents.count)))
+        precondition(entry.count == entryByteCount)
+        pak.append(entry)
+    }
+
+    return pak
+}
+
+private func testLittleEndianBytes<T: FixedWidthInteger>(_ value: T) -> Data {
+    var value = value.littleEndian
+    return withUnsafeBytes(of: &value) { Data($0) }
+}

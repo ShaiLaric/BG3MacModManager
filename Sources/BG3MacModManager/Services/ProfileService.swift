@@ -5,16 +5,24 @@ import Foundation
 /// Saves and loads mod profiles (named load order configurations).
 final class ProfileService {
 
+    private let profilesDirectory: URL
+
+    init(profilesDirectory: URL = FileLocations.profilesDirectory) {
+        self.profilesDirectory = profilesDirectory
+    }
+
     enum ProfileError: Error, LocalizedError {
         case saveFailed(String)
         case loadFailed(String)
         case profileNotFound(String)
+        case invalidName
 
         var errorDescription: String? {
             switch self {
             case .saveFailed(let msg): return "Failed to save profile: \(msg)"
             case .loadFailed(let msg): return "Failed to load profile: \(msg)"
             case .profileNotFound(let name): return "Profile not found: \(name)"
+            case .invalidName: return "Profile name cannot be empty"
             }
         }
     }
@@ -36,6 +44,7 @@ final class ProfileService {
 
     /// Save a profile with the current active mods and their load order.
     func save(name: String, activeMods: [ModInfo]) throws -> ModProfile {
+        let name = try normalizedName(name)
         let entries = activeMods.map { ModProfileEntry(from: $0) }
         let profile = ModProfile(
             name: name,
@@ -45,7 +54,7 @@ final class ProfileService {
 
         let data = try encoder.encode(profile)
         let url = profileURL(for: profile)
-        try FileLocations.ensureDirectoryExists(FileLocations.profilesDirectory)
+        try FileLocations.ensureDirectoryExists(profilesDirectory)
         try data.write(to: url, options: .atomic)
 
         return profile
@@ -55,7 +64,7 @@ final class ProfileService {
 
     /// List all saved profiles.
     func listProfiles() throws -> [ModProfile] {
-        let dir = FileLocations.profilesDirectory
+        let dir = profilesDirectory
         guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
 
         let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
@@ -91,21 +100,28 @@ final class ProfileService {
 
     // MARK: - Rename
 
-    /// Rename a profile. Deletes the old file and writes a new one with the updated name.
+    /// Rename a profile. The new file is committed before the old path is removed.
     func rename(profile: ModProfile, to newName: String) throws -> ModProfile {
         let oldURL = profileURL(for: profile)
-        if FileManager.default.fileExists(atPath: oldURL.path) {
-            try FileManager.default.removeItem(at: oldURL)
-        }
 
         var updated = profile
-        updated.name = newName
+        updated.name = try normalizedName(newName)
         updated.updatedAt = Date()
 
         let data = try encoder.encode(updated)
         let newURL = profileURL(for: updated)
-        try FileLocations.ensureDirectoryExists(FileLocations.profilesDirectory)
+        try FileLocations.ensureDirectoryExists(profilesDirectory)
         try data.write(to: newURL, options: .atomic)
+
+        if oldURL.standardizedFileURL != newURL.standardizedFileURL,
+           FileManager.default.fileExists(atPath: oldURL.path) {
+            do {
+                try FileManager.default.removeItem(at: oldURL)
+            } catch {
+                try? FileManager.default.removeItem(at: newURL)
+                throw error
+            }
+        }
 
         return updated
     }
@@ -114,11 +130,6 @@ final class ProfileService {
 
     /// Overwrite a profile's active mod list with the current load order.
     func update(profile: ModProfile, activeMods: [ModInfo]) throws -> ModProfile {
-        let oldURL = profileURL(for: profile)
-        if FileManager.default.fileExists(atPath: oldURL.path) {
-            try FileManager.default.removeItem(at: oldURL)
-        }
-
         let entries = activeMods.map { ModProfileEntry(from: $0) }
         var updated = profile
         updated.activeModUUIDs = activeMods.map(\.uuid)
@@ -127,7 +138,7 @@ final class ProfileService {
 
         let data = try encoder.encode(updated)
         let newURL = profileURL(for: updated)
-        try FileLocations.ensureDirectoryExists(FileLocations.profilesDirectory)
+        try FileLocations.ensureDirectoryExists(profilesDirectory)
         try data.write(to: newURL, options: .atomic)
 
         return updated
@@ -149,7 +160,7 @@ final class ProfileService {
         // Save to profiles directory
         let savedData = try encoder.encode(profile)
         let savedURL = profileURL(for: profile)
-        try FileLocations.ensureDirectoryExists(FileLocations.profilesDirectory)
+        try FileLocations.ensureDirectoryExists(profilesDirectory)
         try savedData.write(to: savedURL, options: .atomic)
 
         return profile
@@ -159,10 +170,18 @@ final class ProfileService {
 
     private func profileURL(for profile: ModProfile) -> URL {
         let sanitizedName = profile.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "\\", with: "_")
             .replacingOccurrences(of: ":", with: "_")
-        return FileLocations.profilesDirectory
+        return profilesDirectory
             .appendingPathComponent("\(sanitizedName)-\(profile.id.uuidString).json")
+    }
+
+    private func normalizedName(_ name: String) throws -> String {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { throw ProfileError.invalidName }
+        return normalized
     }
 }
 

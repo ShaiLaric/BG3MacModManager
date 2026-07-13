@@ -68,11 +68,11 @@ final class LoadOrderImportService {
             throw ImportError.invalidJSON(error.localizedDescription)
         }
 
-        let entries = export.mods
-            .filter { !Constants.builtInModuleUUIDs.contains($0.UUID.lowercased()) }
-            .map { mod in
-                ImportedModEntry(
-                    uuid: mod.UUID.lowercased(),
+        let entries = export.mods.compactMap { mod -> ImportedModEntry? in
+                guard let uuid = ModIdentity.normalizedUUID(mod.UUID),
+                      !Constants.builtInModuleUUIDs.contains(uuid) else { return nil }
+                return ImportedModEntry(
+                    uuid: uuid,
                     name: mod.modName,
                     folder: mod.folder,
                     version64: Int64(mod.version) ?? 36028797018963968,
@@ -95,10 +95,11 @@ final class LoadOrderImportService {
         let settings = try modSettingsService.read(from: url)
 
         let entries: [ImportedModEntry] = settings.modOrder.compactMap { uuid in
-            guard !Constants.builtInModuleUUIDs.contains(uuid.lowercased()) else { return nil }
+            guard let uuid = ModIdentity.normalizedUUID(uuid),
+                  !Constants.builtInModuleUUIDs.contains(uuid) else { return nil }
             let desc = settings.mods[uuid]
             return ImportedModEntry(
-                uuid: uuid.lowercased(),
+                uuid: uuid,
                 name: desc?.name ?? uuid,
                 folder: desc?.folder ?? "",
                 version64: Int64(desc?.version64 ?? "") ?? 36028797018963968,

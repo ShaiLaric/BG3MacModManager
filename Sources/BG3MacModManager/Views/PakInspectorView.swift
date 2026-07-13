@@ -34,6 +34,12 @@ struct PakInspectorView: View {
         let content: String
     }
 
+    private struct ZipContents: Sendable {
+        let directory: URL
+        let pakFiles: [URL]
+        let infoJSON: String?
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // File selection bar
@@ -435,130 +441,155 @@ struct PakInspectorView: View {
     // MARK: - Actions
 
     private func loadPak(_ url: URL, isFromZip: Bool = false) {
-        do {
-            let result = try PakReader.inspectPak(at: url)
-            selectedURL = url
-            if !isFromZip {
-                sourceURL = url
-                zipInfoJsonContent = nil
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try PakReader.inspectPak(at: url)
+                }.value
+                selectedURL = url
+                if !isFromZip {
+                    sourceURL = url
+                    zipInfoJsonContent = nil
+                }
+                header = result.header
+                entries = result.entries
+                errorText = nil
+                searchText = ""
+            } catch {
+                selectedURL = url
+                if !isFromZip { sourceURL = url }
+                header = nil
+                entries = []
+                errorText = error.localizedDescription
             }
-            header = result.header
-            entries = result.entries
-            errorText = nil
-            searchText = ""
-        } catch {
-            selectedURL = url
-            if !isFromZip { sourceURL = url }
-            header = nil
-            entries = []
-            errorText = error.localizedDescription
         }
     }
 
     private func loadZip(_ url: URL) {
         cleanupTempDir()
 
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PakInspector-\(UUID().uuidString)")
-        do {
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            let archiveService = ArchiveService()
-            try archiveService.extract(archive: url, to: tempDir)
-        } catch {
-            sourceURL = url
-            selectedURL = nil
-            header = nil
-            entries = []
-            errorText = "Failed to extract ZIP: \(error.localizedDescription)"
-            return
-        }
+        Task {
+            do {
+                let contents = try await Task.detached(priority: .userInitiated) { () -> ZipContents in
+                    let tempDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("PakInspector-\(UUID().uuidString)")
+                    do {
+                        try FileManager.default.createDirectory(
+                            at: tempDir,
+                            withIntermediateDirectories: true
+                        )
+                        try ArchiveService().extract(archive: url, to: tempDir)
 
-        tempExtractionDir = tempDir
+                        var pakFiles: [URL] = []
+                        var infoJSON: String?
+                        let enumerator = FileManager.default.enumerator(
+                            at: tempDir,
+                            includingPropertiesForKeys: [.isRegularFileKey]
+                        )
+                        while let fileURL = enumerator?.nextObject() as? URL {
+                            if fileURL.pathExtension.lowercased() == "pak" {
+                                pakFiles.append(fileURL)
+                            } else if fileURL.lastPathComponent.lowercased() == "info.json",
+                                      infoJSON == nil,
+                                      let data = try? Data(contentsOf: fileURL) {
+                                infoJSON = String(data: data, encoding: .utf8)
+                            }
+                        }
+                        return ZipContents(
+                            directory: tempDir,
+                            pakFiles: pakFiles,
+                            infoJSON: infoJSON
+                        )
+                    } catch {
+                        try? FileManager.default.removeItem(at: tempDir)
+                        throw error
+                    }
+                }.value
 
-        // Find all PAK files and the first info.json recursively
-        var pakFiles: [URL] = []
-        var infoJsonURL: URL?
-        if let enumerator = FileManager.default.enumerator(at: tempDir, includingPropertiesForKeys: nil) {
-            while let fileURL = enumerator.nextObject() as? URL {
-                if fileURL.pathExtension.lowercased() == "pak" {
-                    pakFiles.append(fileURL)
-                } else if fileURL.lastPathComponent.lowercased() == "info.json" && infoJsonURL == nil {
-                    infoJsonURL = fileURL
+                tempExtractionDir = contents.directory
+                zipInfoJsonContent = contents.infoJSON
+                sourceURL = url
+                if contents.pakFiles.isEmpty {
+                    selectedURL = nil
+                    header = nil
+                    entries = []
+                    errorText = "No .pak files found in this ZIP archive."
+                } else if contents.pakFiles.count == 1 {
+                    loadPak(contents.pakFiles[0], isFromZip: true)
+                } else {
+                    availablePaks = contents.pakFiles.sorted {
+                        $0.lastPathComponent < $1.lastPathComponent
+                    }
+                    showPakPicker = true
                 }
+            } catch {
+                sourceURL = url
+                selectedURL = nil
+                header = nil
+                entries = []
+                errorText = "Failed to extract ZIP: \(error.localizedDescription)"
             }
-        }
-
-        // Load ZIP-level info.json if found
-        if let jsonURL = infoJsonURL,
-           let data = try? Data(contentsOf: jsonURL),
-           let text = String(data: data, encoding: .utf8) {
-            zipInfoJsonContent = text
-        } else {
-            zipInfoJsonContent = nil
-        }
-
-        sourceURL = url
-
-        if pakFiles.isEmpty {
-            selectedURL = nil
-            header = nil
-            entries = []
-            errorText = "No .pak files found in this ZIP archive."
-        } else if pakFiles.count == 1 {
-            loadPak(pakFiles[0], isFromZip: true)
-        } else {
-            // Multiple PAKs — show picker
-            availablePaks = pakFiles.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            showPakPicker = true
         }
     }
 
     private func cleanupTempDir() {
         if let dir = tempExtractionDir {
-            try? FileManager.default.removeItem(at: dir)
             tempExtractionDir = nil
+            Task.detached { try? FileManager.default.removeItem(at: dir) }
         }
     }
 
     private func viewMetaLsx() {
         guard let url = selectedURL else { return }
-        do {
-            let data = try PakReader.extractMetaLsx(from: url)
-            if let text = String(data: data, encoding: .utf8) {
-                viewingContent = FileContentItem(name: "meta.lsx", content: text)
+        Task {
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    try PakReader.extractMetaLsx(from: url)
+                }.value
+                if let text = String(data: data, encoding: .utf8) {
+                    viewingContent = FileContentItem(name: "meta.lsx", content: text)
+                }
+            } catch {
+                errorText = "Failed to extract meta.lsx: \(error.localizedDescription)"
             }
-        } catch {
-            errorText = "Failed to extract meta.lsx: \(error.localizedDescription)"
         }
     }
 
     private func viewInfoJson() {
         guard let url = selectedURL,
               let infoEntry = entries.first(where: { $0.name.hasSuffix("info.json") }) else { return }
-        do {
-            let data = try PakReader.extractFile(named: infoEntry.name, from: url)
-            if let text = String(data: data, encoding: .utf8) {
-                viewingContent = FileContentItem(name: "info.json", content: text)
+        Task {
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    try PakReader.extractFile(named: infoEntry.name, from: url)
+                }.value
+                if let text = String(data: data, encoding: .utf8) {
+                    viewingContent = FileContentItem(name: "info.json", content: text)
+                }
+            } catch {
+                errorText = "Failed to extract info.json: \(error.localizedDescription)"
             }
-        } catch {
-            errorText = "Failed to extract info.json: \(error.localizedDescription)"
         }
     }
 
     private func viewFileContents(_ entry: PakReader.FileEntry) {
         guard let url = selectedURL else { return }
-        do {
-            let data = try PakReader.extractFile(named: entry.name, from: url)
-            if let text = String(data: data, encoding: .utf8) {
-                viewingContent = FileContentItem(name: entry.name, content: text)
-            } else {
-                viewingContent = FileContentItem(
-                    name: entry.name,
-                    content: "[Binary data: \(formatBytes(UInt64(data.count)))]"
-                )
+        Task {
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    try PakReader.extractFile(named: entry.name, from: url)
+                }.value
+                if let text = String(data: data, encoding: .utf8) {
+                    viewingContent = FileContentItem(name: entry.name, content: text)
+                } else {
+                    viewingContent = FileContentItem(
+                        name: entry.name,
+                        content: "[Binary data: \(formatBytes(UInt64(data.count)))]"
+                    )
+                }
+            } catch {
+                errorText = "Failed to extract \(entry.name): \(error.localizedDescription)"
             }
-        } catch {
-            errorText = "Failed to extract \(entry.name): \(error.localizedDescription)"
         }
     }
 
@@ -600,4 +631,3 @@ struct PakInspectorView: View {
         }
     }
 }
-

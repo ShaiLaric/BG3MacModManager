@@ -1,25 +1,44 @@
-name: Build and Release
+name: Test and Release
 
 on:
+  pull_request:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  test:
     runs-on: macos-14
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve pinned dependencies
+        run: swift package resolve
 
       - name: Run tests
         run: swift test
 
-      - name: Install create-dmg
-        run: brew install create-dmg
+      - name: Check strict concurrency
+        run: swift build -Xswiftc -warn-concurrency -Xswiftc -strict-concurrency=complete
+
+      - name: Check build script syntax
+        run: bash -n scripts/build-app.sh
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Import Developer ID certificate
         env:
@@ -29,19 +48,16 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
-          # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Import certificate
           CERT_PATH=$RUNNER_TEMP/certificate.p12
           echo -n "$CERTIFICATE_P12" | base64 --decode -o "$CERT_PATH"
           security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 \
             -k "$KEYCHAIN_PATH"
           rm "$CERT_PATH"
 
-          # Allow codesign to access the keychain
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
             -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
@@ -49,8 +65,7 @@ jobs:
       - name: Build, sign, and create DMG
         env:
           SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
-        run: |
-          ./scripts/build-app.sh --sign "$SIGN_IDENTITY"
+        run: ./scripts/build-app.sh --sign "$SIGN_IDENTITY"
 
       - name: Notarize DMG
         env:
@@ -59,13 +74,11 @@ jobs:
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: |
           DMG_PATH="build/BG3 Mac Mod Manager.dmg"
-
           xcrun notarytool submit "$DMG_PATH" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$NOTARY_PASSWORD" \
             --wait
-
           xcrun stapler staple "$DMG_PATH"
 
       - name: Clean up keychain
@@ -76,9 +89,12 @@ jobs:
             security delete-keychain "$KEYCHAIN_PATH"
           fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/BG3 Mac Mod Manager.dmg
-          generate_release_notes: true
-          draft: true
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "build/BG3 Mac Mod Manager.dmg" \
+            --draft \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME"

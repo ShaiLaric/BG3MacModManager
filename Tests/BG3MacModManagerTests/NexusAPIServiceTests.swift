@@ -93,7 +93,7 @@ final class NexusAPIServiceTests: XCTestCase {
         XCTAssertFalse(result.hasUpdate)
     }
 
-    func testHasUpdateWithFreeFormVersionStrings() {
+    func testFreeFormVersionStringsAreReportedAsDifferentNotOrdered() {
         let result = NexusUpdateResult(
             modUUID: "test", nexusModID: 1,
             installedVersion: "Release 4", latestVersion: "Release 5",
@@ -101,7 +101,50 @@ final class NexusAPIServiceTests: XCTestCase {
             nexusURL: "https://www.nexusmods.com/baldursgate3/mods/1",
             checkedDate: Date()
         )
-        XCTAssertTrue(result.hasUpdate)
+        XCTAssertFalse(result.hasUpdate)
+        XCTAssertTrue(result.versionDiffers)
+    }
+
+    func testEquivalentNumericFormattingIsCurrent() {
+        let result = NexusUpdateResult(
+            modUUID: "test", nexusModID: 1,
+            installedVersion: "v1.0", latestVersion: "1.0.0.0",
+            latestName: "Test Mod", updatedDate: nil,
+            nexusURL: "https://www.nexusmods.com/baldursgate3/mods/1",
+            checkedDate: Date()
+        )
+        XCTAssertFalse(result.hasUpdate)
+        XCTAssertFalse(result.versionDiffers)
+    }
+
+    func testCheckReportIsIncompleteForSkippedFailedOrRateLimitedMods() {
+        let complete = NexusUpdateCheckReport(
+            results: [:], checkedCount: 2, cachedCount: 1,
+            failedCount: 0, skippedCount: 0, rateLimited: false,
+            totalCount: 3, cachePersisted: true
+        )
+        XCTAssertTrue(complete.isComplete)
+
+        let skipped = NexusUpdateCheckReport(
+            results: [:], checkedCount: 2, cachedCount: 0,
+            failedCount: 0, skippedCount: 1, rateLimited: false,
+            totalCount: 3, cachePersisted: true
+        )
+        XCTAssertFalse(skipped.isComplete)
+
+        let failed = NexusUpdateCheckReport(
+            results: [:], checkedCount: 2, cachedCount: 0,
+            failedCount: 1, skippedCount: 0, rateLimited: false,
+            totalCount: 3, cachePersisted: true
+        )
+        XCTAssertFalse(failed.isComplete)
+
+        let limited = NexusUpdateCheckReport(
+            results: [:], checkedCount: 1, cachedCount: 0,
+            failedCount: 0, skippedCount: 0, rateLimited: true,
+            totalCount: 3, cachePersisted: true
+        )
+        XCTAssertFalse(limited.isComplete)
     }
 
     // MARK: - NexusUpdateCache Codable

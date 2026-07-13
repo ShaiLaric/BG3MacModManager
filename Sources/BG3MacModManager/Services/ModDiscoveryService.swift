@@ -4,14 +4,28 @@ import Foundation
 
 /// Discovers mods by scanning the Mods folder and parsing metadata from
 /// `info.json` files, `meta.lsx` inside `.pak` archives, or filenames.
-final class ModDiscoveryService {
+struct ModDiscoveryService: Sendable {
 
     private let modSettingsService = ModSettingsService()
+    private let modsFolder: URL
+    private let modSettingsURL: URL
+
+    struct DiscoveryState: Sendable {
+        let active: [ModInfo]
+        let inactive: [ModInfo]
+        let duplicateGroups: [[ModInfo]]
+    }
+
+    init(
+        modsFolder: URL = FileLocations.modsFolder,
+        modSettingsURL: URL = FileLocations.modSettingsFile
+    ) {
+        self.modsFolder = modsFolder
+        self.modSettingsURL = modSettingsURL
+    }
 
     /// Discover all mods in the Mods directory.
     func discoverMods() throws -> [ModInfo] {
-        let modsFolder = FileLocations.modsFolder
-
         guard FileManager.default.fileExists(atPath: modsFolder.path) else {
             return []
         }
@@ -28,58 +42,62 @@ final class ModDiscoveryService {
         var discoveredMods: [ModInfo] = []
 
         for pakURL in pakFiles {
+            try Task.checkCancellation()
             if let mod = discoverMod(pakURL: pakURL, allFiles: contents) {
                 discoveredMods.append(mod)
             }
         }
 
-        // Deduplicate by UUID, preferring richer metadata sources
-        var seenUUIDs: [String: ModInfo] = [:]
-        for mod in discoveredMods {
-            if let existing = seenUUIDs[mod.uuid] {
-                if mod.metadataSource.priority > existing.metadataSource.priority {
-                    seenUUIDs[mod.uuid] = mod
-                }
-            } else {
-                seenUUIDs[mod.uuid] = mod
-            }
-        }
+        return discoveredMods.sorted(by: preferredOrder)
+    }
 
-        return Array(seenUUIDs.values)
+    /// One deterministic representative per UUID for normal load-order UI state.
+    func discoverCanonicalMods() throws -> [ModInfo] {
+        canonicalized(try discoverMods()).mods
     }
 
     /// Discover mods and merge with current modsettings.lsx to determine active state.
-    func discoverModsWithState() throws -> (active: [ModInfo], inactive: [ModInfo]) {
-        let allMods = try discoverMods()
+    func discoverModsWithState() throws -> DiscoveryState {
+        let physicalMods = try discoverMods()
+        let canonical = canonicalized(physicalMods)
+        let allMods = canonical.mods
 
         // Read current modsettings.lsx
         let currentSettings: ModSettingsService.ModSettings?
         do {
-            currentSettings = try modSettingsService.read()
+            currentSettings = try modSettingsService.read(from: modSettingsURL)
         } catch {
             currentSettings = nil
         }
 
         guard let settings = currentSettings else {
             // No modsettings.lsx: all mods are inactive
-            return (active: [], inactive: allMods)
+            return DiscoveryState(
+                active: [],
+                inactive: allMods,
+                duplicateGroups: canonical.duplicateGroups
+            )
         }
 
         var active: [ModInfo] = []
-        var inactiveSet = Set(allMods.map { $0.uuid })
+        var inactiveByUUID = Dictionary(
+            uniqueKeysWithValues: allMods.map { (ModIdentity.comparisonKey($0.uuid), $0) }
+        )
 
         // Build active list in the order defined by ModOrder
         for uuid in settings.modOrder {
-            if Constants.builtInModuleUUIDs.contains(uuid) { continue }
+            let uuidKey = ModIdentity.comparisonKey(uuid)
+            if Constants.builtInModuleUUIDs.contains(uuidKey) { continue }
 
-            if let mod = allMods.first(where: { $0.uuid == uuid }) {
+            if let mod = inactiveByUUID.removeValue(forKey: uuidKey) {
                 active.append(mod)
-                inactiveSet.remove(uuid)
-            } else if let desc = settings.mods[uuid] {
+            } else if let desc = settings.mods.first(where: {
+                ModIdentity.comparisonKey($0.key) == uuidKey
+            })?.value {
                 // Mod is in modsettings but .pak not found - create entry from settings
                 let mod = ModInfo(
                     uuid: desc.uuid,
-                    folder: desc.name,
+                    folder: desc.folder,
                     name: desc.name,
                     author: "Unknown",
                     modDescription: "",
@@ -97,9 +115,39 @@ final class ModDiscoveryService {
             }
         }
 
-        let inactive = allMods.filter { inactiveSet.contains($0.uuid) }
+        let inactive = allMods.filter {
+            inactiveByUUID[ModIdentity.comparisonKey($0.uuid)] != nil
+        }
 
-        return (active: active, inactive: inactive)
+        return DiscoveryState(
+            active: active,
+            inactive: inactive,
+            duplicateGroups: canonical.duplicateGroups
+        )
+    }
+
+    private func canonicalized(_ mods: [ModInfo]) -> (mods: [ModInfo], duplicateGroups: [[ModInfo]]) {
+        let grouped = Dictionary(grouping: mods) { ModIdentity.comparisonKey($0.uuid) }
+        let duplicateGroups = grouped.values
+            .filter { $0.count > 1 }
+            .map { $0.sorted(by: preferredOrder) }
+            .sorted {
+                ($0.first?.name ?? "").localizedCaseInsensitiveCompare(
+                    $1.first?.name ?? ""
+                ) == .orderedAscending
+            }
+        let canonicalMods = grouped.values.compactMap { $0.sorted(by: preferredOrder).first }
+            .sorted(by: preferredOrder)
+        return (canonicalMods, duplicateGroups)
+    }
+
+    private func preferredOrder(_ lhs: ModInfo, _ rhs: ModInfo) -> Bool {
+        if lhs.metadataSource.priority != rhs.metadataSource.priority {
+            return lhs.metadataSource.priority > rhs.metadataSource.priority
+        }
+        let leftPath = lhs.pakFilePath?.standardizedFileURL.path ?? lhs.pakFileName ?? lhs.name
+        let rightPath = rhs.pakFilePath?.standardizedFileURL.path ?? rhs.pakFileName ?? rhs.name
+        return leftPath.localizedCaseInsensitiveCompare(rightPath) == .orderedAscending
     }
 
     // MARK: - Single Mod Discovery
@@ -194,7 +242,8 @@ final class ModDiscoveryService {
             return nil
         }
 
-        let uuid = modEntry.UUID ?? Foundation.UUID().uuidString.lowercased()
+        let uuid = ModIdentity.normalizedUUID(modEntry.UUID)
+            ?? ModInfo.deterministicUUID(from: pakFilename)
         let name = modEntry.modName ?? modEntry.Name ?? pakFilename.replacingOccurrences(of: ".pak", with: "")
         let folder = modEntry.folderName ?? modEntry.Folder ?? name
 
@@ -216,7 +265,7 @@ final class ModDiscoveryService {
 
         // Parse dependencies from info.json
         let dependencies: [ModDependency] = (modEntry.Dependencies ?? []).compactMap { dep in
-            guard let depUUID = dep.UUID ?? dep.uuid else { return nil }
+            guard let depUUID = ModIdentity.normalizedUUID(dep.UUID ?? dep.uuid) else { return nil }
             let depVersion64: Int64
             if let vStr = dep.Version, let v = Version64(versionString: vStr) {
                 depVersion64 = v.rawValue
@@ -253,7 +302,11 @@ final class ModDiscoveryService {
     // MARK: - meta.lsx Parsing (from inside .pak)
 
     private func parseMetaLsx(from pakURL: URL, pakFilename: String) -> ModInfo? {
-        guard let metaData = try? PakReader.extractMetaLsx(from: pakURL),
+        let preferredFolder = pakURL.deletingPathExtension().lastPathComponent
+        guard let metaData = try? PakReader.extractMetaLsx(
+                  from: pakURL,
+                  preferredFolder: preferredFolder
+              ),
               let document = try? XMLDocument(data: metaData) else {
             return nil
         }
@@ -264,7 +317,8 @@ final class ModDiscoveryService {
             return nil
         }
 
-        let uuid = moduleInfo.lsxAttribute("UUID") ?? UUID().uuidString.lowercased()
+        let uuid = ModIdentity.normalizedUUID(moduleInfo.lsxAttribute("UUID"))
+            ?? ModInfo.deterministicUUID(from: pakFilename)
         let folder = moduleInfo.lsxAttribute("Folder") ?? pakFilename.replacingOccurrences(of: ".pak", with: "")
         let name = moduleInfo.lsxAttribute("Name") ?? folder
         let author = moduleInfo.lsxAttribute("Author") ?? "Unknown"
@@ -279,7 +333,7 @@ final class ModDiscoveryService {
         if let depNodes = try? document.nodes(forXPath: "//node[@id='Dependencies']/children/node[@id='ModuleShortDesc']") {
             for node in depNodes {
                 guard let elem = node as? XMLElement,
-                      let depUUID = elem.lsxAttribute("UUID") else { continue }
+                      let depUUID = ModIdentity.normalizedUUID(elem.lsxAttribute("UUID")) else { continue }
                 dependencies.append(ModDependency(
                     uuid: depUUID,
                     folder: elem.lsxAttribute("Folder") ?? "",
@@ -295,7 +349,7 @@ final class ModDiscoveryService {
         if let conflictNodes = try? document.nodes(forXPath: "//node[@id='Conflicts']/children/node[@id='ModuleShortDesc']") {
             for node in conflictNodes {
                 guard let elem = node as? XMLElement,
-                      let conflictUUID = elem.lsxAttribute("UUID") else { continue }
+                      let conflictUUID = ModIdentity.normalizedUUID(elem.lsxAttribute("UUID")) else { continue }
                 conflicts.append(ModDependency(
                     uuid: conflictUUID,
                     folder: elem.lsxAttribute("Folder") ?? "",

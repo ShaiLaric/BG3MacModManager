@@ -25,6 +25,11 @@ enum InactiveSortOption: String, CaseIterable {
     case fileSize = "File Size"
 }
 
+private struct FileSortMetadata: Sendable {
+    let date: Date
+    let size: UInt64
+}
+
 /// Main mod management view with active (load order) and inactive mod lists.
 struct ModListView: View {
     @EnvironmentObject var appState: AppState
@@ -38,6 +43,8 @@ struct ModListView: View {
     @State private var filterSERequired: SEFilterOption = .all
     @State private var filterHasWarnings: WarningFilterOption = .all
     @State private var filterMetadataSources: Set<String> = []
+    @State private var inactiveFileMetadata: [String: FileSortMetadata] = [:]
+    @State private var modAwaitingActivationPosition: ModInfo?
 
     private var currentSortOption: InactiveSortOption {
         InactiveSortOption(rawValue: inactiveSortOptionRaw) ?? .name
@@ -98,6 +105,31 @@ struct ModListView: View {
                 appState.selectedModID = newSelection.first
             } else if newSelection.isEmpty {
                 appState.selectedModID = nil
+            }
+        }
+        .task(id: inactiveMetadataPaths) {
+            let paths = inactiveMetadataPaths.map(URL.init(fileURLWithPath:))
+            inactiveFileMetadata = await Task.detached(priority: .utility) {
+                Dictionary(uniqueKeysWithValues: paths.compactMap { path in
+                    guard let attributes = try? FileManager.default.attributesOfItem(
+                        atPath: path.path
+                    ) else { return nil }
+                    return (
+                        path.standardizedFileURL.path,
+                        FileSortMetadata(
+                            date: attributes[.modificationDate] as? Date ?? .distantPast,
+                            size: attributes[.size] as? UInt64 ?? 0
+                        )
+                    )
+                })
+            }.value
+        }
+        .sheet(item: $modAwaitingActivationPosition) { mod in
+            ActivationPositionView(
+                mod: mod,
+                maximumPosition: appState.activeMods.count + 1
+            ) { position in
+                appState.activateMod(mod, atLoadOrderPosition: position)
             }
         }
     }
@@ -558,11 +590,18 @@ struct ModListView: View {
 
             List(selection: $appState.selectedModIDs) {
                 ForEach(filteredInactiveMods) { mod in
-                    ModRowView(mod: mod, isActive: false)
+                    ModRowView(
+                        mod: mod,
+                        isActive: false,
+                        requestPositionedActivation: requestActivationPosition
+                    )
                         .tag(mod.uuid)
                         .draggable(mod.uuid)
                         .contextMenu {
                             Button("Activate") { appState.activateMod(mod) }
+                            Button("Activate at Position…") {
+                                requestActivationPosition(for: mod)
+                            }
                             if appState.selectedModIDs.count > 1 {
                                 let count = appState.inactiveMods.filter {
                                     appState.selectedModIDs.contains($0.uuid)
@@ -925,16 +964,16 @@ struct ModListView: View {
                     result = a.name.localizedCaseInsensitiveCompare(b.name)
                 }
             case .fileDate:
-                let dateA = fileDate(for: a)
-                let dateB = fileDate(for: b)
+                let dateA = fileMetadataValue(for: a).date
+                let dateB = fileMetadataValue(for: b).date
                 if dateA == dateB {
                     result = a.name.localizedCaseInsensitiveCompare(b.name)
                 } else {
                     result = dateA < dateB ? .orderedAscending : .orderedDescending
                 }
             case .fileSize:
-                let sizeA = fileSize(for: a)
-                let sizeB = fileSize(for: b)
+                let sizeA = fileMetadataValue(for: a).size
+                let sizeB = fileMetadataValue(for: b).size
                 if sizeA == sizeB {
                     result = a.name.localizedCaseInsensitiveCompare(b.name)
                 } else {
@@ -945,22 +984,18 @@ struct ModListView: View {
         }
     }
 
-    private func fileDate(for mod: ModInfo) -> Date {
-        guard let path = mod.pakFilePath,
-              let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
-              let date = attrs[.modificationDate] as? Date else {
-            return .distantPast
-        }
-        return date
+    private var inactiveMetadataPaths: [String] {
+        appState.inactiveMods.compactMap(\.pakFilePath)
+            .map { $0.standardizedFileURL.path }
+            .sorted()
     }
 
-    private func fileSize(for mod: ModInfo) -> UInt64 {
-        guard let path = mod.pakFilePath,
-              let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
-              let size = attrs[.size] as? UInt64 else {
-            return 0
+    private func fileMetadataValue(for mod: ModInfo) -> FileSortMetadata {
+        guard let path = mod.pakFilePath else {
+            return FileSortMetadata(date: .distantPast, size: 0)
         }
-        return size
+        return inactiveFileMetadata[path.standardizedFileURL.path]
+            ?? FileSortMetadata(date: .distantPast, size: 0)
     }
 
     private func matchesFilters(_ mod: ModInfo) -> Bool {
@@ -1015,6 +1050,10 @@ struct ModListView: View {
     }
 
     // MARK: - Helpers
+
+    private func requestActivationPosition(for mod: ModInfo) {
+        modAwaitingActivationPosition = mod
+    }
 
 
     // MARK: - Drag Insert

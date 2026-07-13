@@ -10,17 +10,26 @@ final class ModNotesService {
 
     /// Get the stored note for a mod, if any.
     func note(for modUUID: String) -> String? {
-        notes[modUUID]
+        notes[ModIdentity.comparisonKey(modUUID)]
     }
 
     /// Set or update the note for a mod. Pass nil or empty/whitespace-only string to clear.
-    func setNote(_ text: String?, for modUUID: String) {
+    @discardableResult
+    func setNote(_ text: String?, for modUUID: String) -> Bool {
+        let previous = notes
+        let modUUID = ModIdentity.comparisonKey(modUUID)
         if let text = text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             notes[modUUID] = text
         } else {
             notes.removeValue(forKey: modUUID)
         }
-        save()
+        do {
+            try save()
+            return true
+        } catch {
+            notes = previous
+            return false
+        }
     }
 
     /// All stored notes (for bulk lookup / export).
@@ -45,16 +54,15 @@ final class ModNotesService {
               let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
             return
         }
-        notes = decoded
+        notes = Dictionary(
+            decoded.map { (ModIdentity.comparisonKey($0.key), $0.value) },
+            uniquingKeysWith: { _, latest in latest }
+        )
     }
 
-    private func save() {
-        do {
-            try FileLocations.ensureDirectoryExists(storageURL.deletingLastPathComponent())
-            let data = try JSONEncoder().encode(notes)
-            try data.write(to: storageURL, options: .atomic)
-        } catch {
-            // Non-fatal: notes just won't persist
-        }
+    private func save() throws {
+        try FileLocations.ensureDirectoryExists(storageURL.deletingLastPathComponent())
+        let data = try JSONEncoder().encode(notes)
+        try data.write(to: storageURL, options: .atomic)
     }
 }

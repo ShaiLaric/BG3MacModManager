@@ -21,14 +21,20 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 APP_NAME="BG3 Mac Mod Manager"
 BUNDLE_NAME="BG3MacModManager"
 BUILD_DIR="$PROJECT_DIR/build"
-APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
-DMG_PATH="$BUILD_DIR/${APP_NAME}.dmg"
+FINAL_APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
+FINAL_DMG_PATH="$BUILD_DIR/${APP_NAME}.dmg"
+mkdir -p "$BUILD_DIR"
+WORK_DIR=$(mktemp -d "$BUILD_DIR/.build-staging.XXXXXX")
+trap 'rm -rf "$WORK_DIR"' EXIT
+APP_BUNDLE="$WORK_DIR/${APP_NAME}.app"
+DMG_PATH="$WORK_DIR/${APP_NAME}.dmg"
 
 SIGN_IDENTITY=""
 NOTARIZE=false
 KEYCHAIN_PROFILE=""
 APPLE_ID=""
 TEAM_ID=""
+NOTARY_PASSWORD_ENV=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -52,9 +58,14 @@ while [[ $# -gt 0 ]]; do
             TEAM_ID="$2"
             shift 2
             ;;
+        --password-env)
+            NOTARY_PASSWORD_ENV="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Usage: $0 [--sign IDENTITY] [--notarize --keychain-profile PROFILE]"
+            echo "       $0 --sign IDENTITY --notarize --apple-id ID --team-id TEAM --password-env ENV_VAR"
             exit 1
             ;;
     esac
@@ -66,17 +77,19 @@ if $NOTARIZE; then
         echo "Error: --notarize requires --sign with a Developer ID"
         exit 1
     fi
-    if [ -z "$KEYCHAIN_PROFILE" ] && { [ -z "$APPLE_ID" ] || [ -z "$TEAM_ID" ]; }; then
-        echo "Error: --notarize requires either --keychain-profile or both --apple-id and --team-id"
+    if [ -z "$KEYCHAIN_PROFILE" ] && { [ -z "$APPLE_ID" ] || [ -z "$TEAM_ID" ] || [ -z "$NOTARY_PASSWORD_ENV" ]; }; then
+        echo "Error: Apple-ID notarization requires --apple-id, --team-id, and --password-env"
+        exit 1
+    fi
+    if [ -z "$KEYCHAIN_PROFILE" ] && [ -z "${!NOTARY_PASSWORD_ENV:-}" ]; then
+        echo "Error: password environment variable '$NOTARY_PASSWORD_ENV' is empty or unset"
         exit 1
     fi
 fi
 
 echo "=== Building ${APP_NAME} ==="
 
-# Clean previous build
-rm -rf "$APP_BUNDLE" "$DMG_PATH"
-mkdir -p "$BUILD_DIR"
+# Assemble in a private staging directory so a failed build keeps the last good artifacts.
 
 # Build release binary (universal binary for Intel + Apple Silicon)
 echo "Building release binary (universal)..."
@@ -109,7 +122,7 @@ echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 
 # Copy app icon if it exists
 ICON_PATH=""
-if [ -d "$PROJECT_DIR/Resources/AppIcon.icns" ]; then
+if [ -f "$PROJECT_DIR/Resources/AppIcon.icns" ]; then
     cp "$PROJECT_DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
     ICON_PATH="$PROJECT_DIR/Resources/AppIcon.icns"
 elif [ -f "$PROJECT_DIR/AppIcon.icns" ]; then
@@ -176,7 +189,7 @@ else
     echo "      For a styled DMG, install: brew install create-dmg"
     echo ""
 
-    STAGING_DIR="$BUILD_DIR/dmg-staging"
+    STAGING_DIR="$WORK_DIR/dmg-staging"
     rm -rf "$STAGING_DIR"
     mkdir -p "$STAGING_DIR"
 
@@ -208,7 +221,11 @@ if $NOTARIZE; then
     if [ -n "$KEYCHAIN_PROFILE" ]; then
         NOTARY_ARGS+=(--keychain-profile "$KEYCHAIN_PROFILE")
     else
-        NOTARY_ARGS+=(--apple-id "$APPLE_ID" --team-id "$TEAM_ID")
+        NOTARY_ARGS+=(
+            --apple-id "$APPLE_ID"
+            --team-id "$TEAM_ID"
+            --password "${!NOTARY_PASSWORD_ENV}"
+        )
     fi
 
     xcrun notarytool "${NOTARY_ARGS[@]}"
@@ -235,3 +252,11 @@ else
     echo "To distribute via GitHub Releases, re-run with signing and notarization:"
     echo "  $0 --sign \"Developer ID Application: Your Name (TEAMID)\""
 fi
+
+# Publish only after building, signing, DMG creation, and optional notarization all succeed.
+rm -rf "$FINAL_APP_BUNDLE"
+rm -f "$FINAL_DMG_PATH"
+mv "$APP_BUNDLE" "$FINAL_APP_BUNDLE"
+mv "$DMG_PATH" "$FINAL_DMG_PATH"
+echo "Published app: $FINAL_APP_BUNDLE"
+echo "Published DMG: $FINAL_DMG_PATH"

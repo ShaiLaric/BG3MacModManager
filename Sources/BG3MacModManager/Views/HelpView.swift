@@ -189,6 +189,7 @@ struct HelpView: View {
             helpHeading("Activating & Deactivating")
             helpBulletList([
                 "Right-click a mod and choose Activate or Deactivate",
+                "Choose Activate at Position… to enter a load-order number; leave it blank to append at the end",
                 "Click the +/- button on the right side of a mod row",
                 "Drag an inactive mod onto the Active Mods list to activate it at a specific position in the load order",
                 "Use the overflow menu (\"...\") to Activate All or Deactivate All",

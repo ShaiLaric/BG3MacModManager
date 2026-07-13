@@ -3,7 +3,7 @@
 import Foundation
 
 /// A saved mod configuration (load order + active mods).
-struct ModProfile: Identifiable, Codable {
+struct ModProfile: Identifiable, Codable, Sendable {
     let id: UUID
     var name: String
     var createdAt: Date
@@ -26,7 +26,7 @@ struct ModProfile: Identifiable, Codable {
 }
 
 /// Minimal mod metadata stored in a profile for reconstruction.
-struct ModProfileEntry: Codable, Identifiable {
+struct ModProfileEntry: Codable, Identifiable, Sendable {
     let uuid: String
     var folder: String
     var name: String

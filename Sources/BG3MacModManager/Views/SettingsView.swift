@@ -5,13 +5,15 @@ import SwiftUI
 /// App settings view (shown in Preferences window).
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
-    @AppStorage("lockModSettingsAfterSave") var lockAfterSave = true
-    @AppStorage("autoBackupBeforeSave") var autoBackup = true
-    @AppStorage("backupRetentionDays") var backupRetentionDays = 30
-    @AppStorage("autoSaveBeforeLaunch") var autoSaveBeforeLaunch = false
-    @AppStorage("autoSaveOnProfileLoad") var autoSaveOnProfileLoad = false
-    @AppStorage("nexusAPIKey") var nexusAPIKey = ""
-    @AppStorage("autoCheckNexusUpdates") var autoCheckNexusUpdates = false
+    @AppStorage(AppPreferenceKey.lockModSettingsAfterSave) var lockAfterSave = true
+    @AppStorage(AppPreferenceKey.autoBackupBeforeSave) var autoBackup = true
+    @AppStorage(AppPreferenceKey.backupRetentionDays) var backupRetentionDays = 30
+    @AppStorage(AppPreferenceKey.autoSaveBeforeLaunch) var autoSaveBeforeLaunch = false
+    @AppStorage(AppPreferenceKey.autoSaveOnProfileLoad) var autoSaveOnProfileLoad = false
+    @AppStorage(AppPreferenceKey.autoCheckNexusUpdates) var autoCheckNexusUpdates = false
+    @State private var nexusAPIKey = ""
+    @State private var nexusCredentialError: String?
+    private let nexusCredentialStore = NexusCredentialStore()
 
     var body: some View {
         TabView {
@@ -80,8 +82,22 @@ struct SettingsView: View {
             GroupBox("Nexus Mods") {
                 SecureField("API Key", text: $nexusAPIKey)
                     .help("Your personal Nexus Mods API key for checking mod updates")
+                    .onChange(of: nexusAPIKey) { newValue in
+                        do {
+                            try nexusCredentialStore.setAPIKey(newValue)
+                            nexusCredentialError = nil
+                        } catch {
+                            nexusCredentialError = error.localizedDescription
+                        }
+                    }
 
-                Text("Your API key is stored locally and only used to query the Nexus Mods API for version information. It is never shared.")
+                if let nexusCredentialError {
+                    Text("Could not save API key: \(nexusCredentialError)")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                Text("Your API key is stored in your macOS Keychain and only used to query the Nexus Mods API for version information.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
 
@@ -108,6 +124,10 @@ struct SettingsView: View {
                     .help("Automatically check Nexus Mods for updates when the app starts. Requires an API key and Nexus URLs set on your mods.")
                     .disabled(nexusAPIKey.isEmpty)
             }
+        }
+        .task {
+            nexusCredentialStore.migrateLegacyValueIfNeeded()
+            nexusAPIKey = nexusCredentialStore.apiKey() ?? ""
         }
     }
 

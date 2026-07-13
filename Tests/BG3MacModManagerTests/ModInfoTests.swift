@@ -30,6 +30,11 @@ final class ModInfoTests: XCTestCase {
         XCTAssertTrue(mod.isBasicGameModule)
     }
 
+    func testGustavUUIDIsBasicGameModule() {
+        let mod = makeModInfo(uuid: Constants.gustavUUID)
+        XCTAssertTrue(mod.isBasicGameModule)
+    }
+
     func testNonGameModuleIsNotBasicGameModule() {
         let mod = makeModInfo(uuid: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
         XCTAssertFalse(mod.isBasicGameModule)
@@ -104,6 +109,7 @@ final class ModInfoTests: XCTestCase {
     func testBuiltInModuleUUIDsContainsKnownUUIDs() {
         XCTAssertTrue(Constants.builtInModuleUUIDs.contains(Constants.baseModuleUUID))
         XCTAssertTrue(Constants.builtInModuleUUIDs.contains(Constants.gustavDevUUID))
+        XCTAssertTrue(Constants.builtInModuleUUIDs.contains(Constants.gustavUUID))
     }
 
     func testBuiltInModuleUUIDsCount() {

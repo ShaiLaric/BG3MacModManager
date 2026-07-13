@@ -6,7 +6,18 @@ import Darwin
 /// Manages backups of modsettings.lsx before making changes.
 final class BackupService {
 
-    struct Backup: Identifiable {
+    private let modSettingsURL: URL
+    private let backupsDirectory: URL
+
+    init(
+        modSettingsURL: URL = FileLocations.modSettingsFile,
+        backupsDirectory: URL = FileLocations.backupsDirectory
+    ) {
+        self.modSettingsURL = modSettingsURL
+        self.backupsDirectory = backupsDirectory
+    }
+
+    struct Backup: Identifiable, Sendable {
         let id: String
         let url: URL
         let date: Date
@@ -25,17 +36,17 @@ final class BackupService {
     /// Create a timestamped backup of modsettings.lsx before any modifications.
     @discardableResult
     func backupModSettings() throws -> Backup {
-        let source = FileLocations.modSettingsFile
+        let source = modSettingsURL
         guard FileManager.default.fileExists(atPath: source.path) else {
             throw BackupError.sourceNotFound
         }
 
-        try FileLocations.ensureDirectoryExists(FileLocations.backupsDirectory)
+        try FileLocations.ensureDirectoryExists(backupsDirectory)
 
         let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
         let filename = "modsettings-\(timestamp).lsx"
-        let destination = FileLocations.backupsDirectory.appendingPathComponent(filename)
+        let destination = backupsDirectory.appendingPathComponent(filename)
 
         try FileManager.default.copyItem(at: source, to: destination)
 
@@ -49,7 +60,7 @@ final class BackupService {
 
     /// List all available backups, newest first.
     func listBackups() throws -> [Backup] {
-        let dir = FileLocations.backupsDirectory
+        let dir = backupsDirectory
         guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
 
         let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey])
@@ -69,19 +80,32 @@ final class BackupService {
 
     /// Restore modsettings.lsx from a backup.
     func restore(backup: Backup) throws {
-        let destination = FileLocations.modSettingsFile
+        let destination = modSettingsURL
+        let destinationExisted = FileManager.default.fileExists(atPath: destination.path)
+        let wasLocked = destinationExisted && isModSettingsLocked()
 
         // Unlock the file if it's locked (macOS file locking)
-        _ = setImmutable(false, at: destination)
-
-        // Create a safety backup before restoring
-        if FileManager.default.fileExists(atPath: destination.path) {
-            let safetyBackup = FileLocations.backupsDirectory.appendingPathComponent("pre-restore-\(Date().timeIntervalSince1970).lsx")
-            try? FileManager.default.copyItem(at: destination, to: safetyBackup)
-            try FileManager.default.removeItem(at: destination)
+        if wasLocked && !setImmutable(false, at: destination) {
+            throw BackupError.unlockFailed
+        }
+        defer {
+            if wasLocked {
+                _ = setImmutable(true, at: destination)
+            }
         }
 
-        try FileManager.default.copyItem(at: backup.url, to: destination)
+        // A safety backup is mandatory before replacing the live file.
+        if destinationExisted {
+            try FileLocations.ensureDirectoryExists(backupsDirectory)
+            let safetyBackup = backupsDirectory.appendingPathComponent(
+                "pre-restore-\(UUID().uuidString).lsx"
+            )
+            try FileManager.default.copyItem(at: destination, to: safetyBackup)
+        }
+
+        try TransactionalFileService.replaceFiles([
+            .init(source: backup.url, destination: destination),
+        ])
     }
 
     // MARK: - Delete
@@ -106,18 +130,18 @@ final class BackupService {
     /// Lock modsettings.lsx to prevent the game from overwriting it.
     @discardableResult
     func lockModSettings() -> Bool {
-        return setImmutable(true, at: FileLocations.modSettingsFile)
+        return setImmutable(true, at: modSettingsURL)
     }
 
     /// Unlock modsettings.lsx so it can be modified.
     @discardableResult
     func unlockModSettings() -> Bool {
-        return setImmutable(false, at: FileLocations.modSettingsFile)
+        return setImmutable(false, at: modSettingsURL)
     }
 
     /// Returns true if modsettings.lsx is currently locked.
     func isModSettingsLocked() -> Bool {
-        let path = FileLocations.modSettingsFile.path
+        let path = modSettingsURL.path
         var statBuf = stat()
         guard stat(path, &statBuf) == 0 else { return false }
         return (statBuf.st_flags & UInt32(UF_IMMUTABLE)) != 0
@@ -147,10 +171,12 @@ final class BackupService {
 
     enum BackupError: Error, LocalizedError {
         case sourceNotFound
+        case unlockFailed
 
         var errorDescription: String? {
             switch self {
             case .sourceNotFound: return "modsettings.lsx not found - nothing to back up"
+            case .unlockFailed: return "Could not unlock modsettings.lsx for restore"
             }
         }
     }

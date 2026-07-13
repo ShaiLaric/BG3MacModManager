@@ -2,7 +2,6 @@
 .build/
 .swiftpm/
 !.swiftpm/xcode/xcshareddata/
-Package.resolved
 
 # Xcode
 *.xcodeproj/

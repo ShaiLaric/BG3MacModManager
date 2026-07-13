@@ -19,6 +19,9 @@ final class PakReader {
         case decompressionFailed
         case fileNotFound(String)
         case readError(String)
+        case unsafePath(String)
+        case limitExceeded(String)
+        case unsupportedArchivePart(UInt8)
 
         var errorDescription: String? {
             switch self {
@@ -28,13 +31,33 @@ final class PakReader {
             case .decompressionFailed: return "Failed to decompress archive data"
             case .fileNotFound(let name): return "File not found in archive: \(name)"
             case .readError(let msg): return "Read error: \(msg)"
+            case .unsafePath(let path): return "Unsafe path in archive: \(path)"
+            case .limitExceeded(let msg): return "Archive safety limit exceeded: \(msg)"
+            case .unsupportedArchivePart(let part):
+                return "Split PAK archive part \(part) is not supported"
             }
         }
     }
 
+    struct Limits: Sendable {
+        let maximumFileCount: Int
+        let maximumFileListBytes: Int
+        let maximumCompressedEntryBytes: Int
+        let maximumUncompressedEntryBytes: Int
+        let maximumTotalExtractionBytes: UInt64
+
+        static let `default` = Limits(
+            maximumFileCount: 200_000,
+            maximumFileListBytes: 64 * 1_024 * 1_024,
+            maximumCompressedEntryBytes: 512 * 1_024 * 1_024,
+            maximumUncompressedEntryBytes: 512 * 1_024 * 1_024,
+            maximumTotalExtractionBytes: 8 * 1_024 * 1_024 * 1_024
+        )
+    }
+
     // MARK: - LSPK Structures
 
-    struct PakHeader {
+    struct PakHeader: Sendable {
         let version: UInt32
         let fileListOffset: UInt64
         let fileListSize: UInt32
@@ -46,7 +69,7 @@ final class PakReader {
         var isSolid: Bool { flags & 0x04 != 0 }
     }
 
-    struct FileEntry: Identifiable {
+    struct FileEntry: Identifiable, Sendable {
         let name: String
         let offset: UInt64
         let archivePart: UInt8
@@ -59,9 +82,19 @@ final class PakReader {
         var compressionMethod: CompressionType {
             CompressionType(rawValue: flags & 0x0F) ?? .none
         }
+
+        /// Some valid legacy PAK writers encode an uncompressed entry with a zero
+        /// uncompressed-size field. In that representation, the stored byte count
+        /// is also the extracted byte count.
+        var effectiveUncompressedSize: UInt64 {
+            if compressionMethod == .none && uncompressedSize == 0 {
+                return UInt64(sizeOnDisk)
+            }
+            return UInt64(uncompressedSize)
+        }
     }
 
-    enum CompressionType: UInt8 {
+    enum CompressionType: UInt8, Sendable {
         case none = 0
         case zlib = 1
         case lz4  = 2
@@ -76,62 +109,120 @@ final class PakReader {
     // MARK: - Public API
 
     /// List all files in a `.pak` archive.
-    static func listFiles(at url: URL) throws -> [FileEntry] {
+    static func listFiles(at url: URL, limits: Limits = .default) throws -> [FileEntry] {
         let handle = try FileHandle(forReadingFrom: url)
         defer { handle.closeFile() }
-        return try readFileEntries(handle: handle)
+        return try readFileEntries(handle: handle, limits: limits)
     }
 
     /// Extract a specific file from the `.pak` by name path (e.g., "Mods/MyMod/meta.lsx").
-    static func extractFile(named targetPath: String, from url: URL) throws -> Data {
+    static func extractFile(
+        named targetPath: String,
+        from url: URL,
+        limits: Limits = .default
+    ) throws -> Data {
         let handle = try FileHandle(forReadingFrom: url)
         defer { handle.closeFile() }
 
-        let (header, entries) = try readHeaderAndEntries(handle: handle)
+        let (header, entries, fileLength) = try readHeaderAndEntries(
+            handle: handle,
+            limits: limits
+        )
 
         guard let entry = entries.first(where: { $0.name == targetPath }) else {
             throw PakError.fileNotFound(targetPath)
         }
 
-        return try readFileData(handle: handle, entry: entry, header: header)
+        return try readFileData(
+            handle: handle,
+            entry: entry,
+            header: header,
+            fileLength: fileLength,
+            limits: limits
+        )
     }
 
     /// Extract all files from a `.pak` archive to a destination folder.
-    static func extractAll(from pakURL: URL, to destinationFolder: URL) throws {
+    static func extractAll(
+        from pakURL: URL,
+        to destinationFolder: URL,
+        limits: Limits = .default
+    ) throws {
         let handle = try FileHandle(forReadingFrom: pakURL)
         defer { handle.closeFile() }
 
-        let (header, entries) = try readHeaderAndEntries(handle: handle)
+        let (header, entries, fileLength) = try readHeaderAndEntries(
+            handle: handle,
+            limits: limits
+        )
+
+        var totalSize: UInt64 = 0
+        for entry in entries {
+            let (nextTotal, overflow) = totalSize.addingReportingOverflow(
+                entry.effectiveUncompressedSize
+            )
+            guard !overflow, nextTotal <= limits.maximumTotalExtractionBytes else {
+                throw PakError.limitExceeded("total extracted data")
+            }
+            totalSize = nextTotal
+        }
 
         for entry in entries {
-            let data = try readFileData(handle: handle, entry: entry, header: header)
-
-            // Normalize path separators (PAK files may use backslashes)
-            let relativePath = entry.name.replacingOccurrences(of: "\\", with: "/")
-            let fileURL = destinationFolder.appendingPathComponent(relativePath)
+            try Task.checkCancellation()
+            let fileURL = try safeExtractionURL(for: entry.name, in: destinationFolder)
+            let data = try readFileData(
+                handle: handle,
+                entry: entry,
+                header: header,
+                fileLength: fileLength,
+                limits: limits
+            )
 
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
 
-            try data.write(to: fileURL)
+            try data.write(to: fileURL, options: .atomic)
         }
     }
 
     /// Find and extract `meta.lsx` from a `.pak` file.
     /// Searches for files matching the pattern `Mods/*/meta.lsx`.
-    static func extractMetaLsx(from url: URL) throws -> Data {
+    static func extractMetaLsx(
+        from url: URL,
+        preferredFolder: String? = nil,
+        limits: Limits = .default
+    ) throws -> Data {
         let handle = try FileHandle(forReadingFrom: url)
         defer { handle.closeFile() }
 
-        let (header, entries) = try readHeaderAndEntries(handle: handle)
+        let (header, entries, fileLength) = try readHeaderAndEntries(
+            handle: handle,
+            limits: limits
+        )
 
-        guard let entry = entries.first(where: { isMetaLsx(path: $0.name) }) else {
+        let metadataEntries = entries.filter { isMetaLsx(path: $0.name) }
+        guard !metadataEntries.isEmpty else {
             throw PakError.fileNotFound("Mods/*/meta.lsx")
         }
 
-        return try readFileData(handle: handle, entry: entry, header: header)
+        // Some packaged mods contain copies of built-in game metadata alongside their own.
+        // Prefer the metadata folder matching the PAK filename instead of blindly taking the
+        // first `meta.lsx` (which can otherwise misidentify the mod as Gustav or GustavX).
+        let entry = preferredFolder.flatMap { preferredFolder in
+            metadataEntries.first {
+                metaFolder(path: $0.name)?.caseInsensitiveCompare(preferredFolder) == .orderedSame
+            }
+        } ?? metadataEntries[0]
+
+        return try readFileData(
+            handle: handle,
+            entry: entry,
+            header: header,
+            fileLength: fileLength,
+            limits: limits
+        )
     }
 
     /// Check whether a `.pak` contains Script Extender scripts.
@@ -142,26 +233,43 @@ final class PakReader {
 
     /// Inspect a `.pak` archive and return both its header and file entries.
     /// Used by the PAK Inspector tool to display archive internals.
-    static func inspectPak(at url: URL) throws -> (header: PakHeader, entries: [FileEntry]) {
+    static func inspectPak(
+        at url: URL,
+        limits: Limits = .default
+    ) throws -> (header: PakHeader, entries: [FileEntry]) {
         let handle = try FileHandle(forReadingFrom: url)
         defer { handle.closeFile() }
-        return try readHeaderAndEntries(handle: handle)
+        let (header, entries, _) = try readHeaderAndEntries(handle: handle, limits: limits)
+        return (header, entries)
     }
 
     // MARK: - Internal Reading
 
-    private static func readHeaderAndEntries(handle: FileHandle) throws -> (PakHeader, [FileEntry]) {
-        let header = try readHeader(handle: handle)
-        let entries = try readFileList(handle: handle, header: header)
-        return (header, entries)
+    private static func readHeaderAndEntries(
+        handle: FileHandle,
+        limits: Limits
+    ) throws -> (PakHeader, [FileEntry], UInt64) {
+        let fileLength = try handle.seekToEnd()
+        let header = try readHeader(handle: handle, fileLength: fileLength, limits: limits)
+        let entries = try readFileList(
+            handle: handle,
+            header: header,
+            fileLength: fileLength,
+            limits: limits
+        )
+        return (header, entries, fileLength)
     }
 
-    private static func readFileEntries(handle: FileHandle) throws -> [FileEntry] {
-        let header = try readHeader(handle: handle)
-        return try readFileList(handle: handle, header: header)
+    private static func readFileEntries(handle: FileHandle, limits: Limits) throws -> [FileEntry] {
+        let (_, entries, _) = try readHeaderAndEntries(handle: handle, limits: limits)
+        return entries
     }
 
-    private static func readHeader(handle: FileHandle) throws -> PakHeader {
+    private static func readHeader(
+        handle: FileHandle,
+        fileLength: UInt64,
+        limits: Limits
+    ) throws -> PakHeader {
         handle.seek(toFileOffset: 0)
         guard let sigData = try handle.read(upToCount: 4),
               sigData.count == 4 else {
@@ -189,6 +297,17 @@ final class PakReader {
         let md5            = headerData[18..<34]
         let numParts       = headerData.readUInt16(at: 34)
 
+        guard fileListSize <= limits.maximumFileListBytes else {
+            throw PakError.limitExceeded("file list is \(fileListSize) bytes")
+        }
+        guard containsRange(offset: fileListOffset, size: 8, in: fileLength) else {
+            throw PakError.fileListReadFailed
+        }
+        if fileListSize > 0,
+           !containsRange(offset: fileListOffset, size: UInt64(fileListSize), in: fileLength) {
+            throw PakError.fileListReadFailed
+        }
+
         return PakHeader(
             version: version,
             fileListOffset: fileListOffset,
@@ -200,7 +319,12 @@ final class PakReader {
         )
     }
 
-    private static func readFileList(handle: FileHandle, header: PakHeader) throws -> [FileEntry] {
+    private static func readFileList(
+        handle: FileHandle,
+        header: PakHeader,
+        fileLength: UInt64,
+        limits: Limits
+    ) throws -> [FileEntry] {
         handle.seek(toFileOffset: header.fileListOffset)
 
         // V18 file list: first 4 bytes = numFiles, next 4 bytes = compressedSize
@@ -212,7 +336,19 @@ final class PakReader {
         let numFiles = Int(preamble.readUInt32(at: 0))
         let compressedSize = Int(preamble.readUInt32(at: 4))
 
-        guard numFiles > 0, numFiles < 1_000_000 else {
+        guard numFiles > 0, numFiles <= limits.maximumFileCount else {
+            throw PakError.limitExceeded("file count is \(numFiles)")
+        }
+        let (compressedDataOffset, offsetOverflow) = header.fileListOffset
+            .addingReportingOverflow(8)
+        guard !offsetOverflow,
+              compressedSize > 0,
+              compressedSize <= limits.maximumFileListBytes,
+              containsRange(
+                offset: compressedDataOffset,
+                size: UInt64(compressedSize),
+                in: fileLength
+              ) else {
             throw PakError.fileListReadFailed
         }
 
@@ -221,7 +357,10 @@ final class PakReader {
             throw PakError.fileListReadFailed
         }
 
-        let expectedSize = numFiles * fileEntrySize
+        let (expectedSize, overflow) = numFiles.multipliedReportingOverflow(by: fileEntrySize)
+        guard !overflow, expectedSize <= limits.maximumFileListBytes else {
+            throw PakError.limitExceeded("expanded file list is too large")
+        }
         let entryData: Data
 
         if compressedSize == expectedSize {
@@ -247,6 +386,10 @@ final class PakReader {
             }
         }
 
+        guard entryData.count == expectedSize else {
+            throw PakError.fileListReadFailed
+        }
+
         // Parse file entries
         var entries: [FileEntry] = []
         entries.reserveCapacity(numFiles)
@@ -268,6 +411,22 @@ final class PakReader {
             let sizeOnDisk       = entryData.readUInt32(at: base + 264)
             let uncompressedSize = entryData.readUInt32(at: base + 268)
 
+            guard !name.isEmpty else {
+                throw PakError.unsafePath(name)
+            }
+            let effectiveUncompressedSize: UInt64 =
+                flags & 0x0F == CompressionType.none.rawValue && uncompressedSize == 0
+                ? UInt64(sizeOnDisk)
+                : UInt64(uncompressedSize)
+            guard sizeOnDisk <= limits.maximumCompressedEntryBytes,
+                  effectiveUncompressedSize <= UInt64(limits.maximumUncompressedEntryBytes) else {
+                throw PakError.limitExceeded("entry \(name) is too large")
+            }
+            if archivePart == 0,
+               !containsRange(offset: offset, size: UInt64(sizeOnDisk), in: fileLength) {
+                throw PakError.readError("File data range is outside the archive for \(name)")
+            }
+
             entries.append(FileEntry(
                 name: name,
                 offset: offset,
@@ -281,7 +440,27 @@ final class PakReader {
         return entries
     }
 
-    private static func readFileData(handle: FileHandle, entry: FileEntry, header: PakHeader) throws -> Data {
+    private static func readFileData(
+        handle: FileHandle,
+        entry: FileEntry,
+        header: PakHeader,
+        fileLength: UInt64,
+        limits: Limits
+    ) throws -> Data {
+        guard entry.archivePart == 0 else {
+            throw PakError.unsupportedArchivePart(entry.archivePart)
+        }
+        guard entry.sizeOnDisk <= limits.maximumCompressedEntryBytes,
+              entry.effectiveUncompressedSize <= UInt64(limits.maximumUncompressedEntryBytes) else {
+            throw PakError.limitExceeded("entry \(entry.name) is too large")
+        }
+        guard containsRange(
+            offset: entry.offset,
+            size: UInt64(entry.sizeOnDisk),
+            in: fileLength
+        ) else {
+            throw PakError.readError("File data range is outside the archive for \(entry.name)")
+        }
         handle.seek(toFileOffset: entry.offset)
 
         guard let compressedData = try handle.read(upToCount: Int(entry.sizeOnDisk)),
@@ -296,6 +475,11 @@ final class PakReader {
         let algorithm: compression_algorithm
         switch entry.compressionMethod {
         case .none:
+            // Older tools commonly write raw entries with an expanded size of zero.
+            // The bytes are not compressed, so the stored size is authoritative.
+            guard entry.uncompressedSize == 0 else {
+                throw PakError.decompressionFailed
+            }
             return compressedData
         case .zlib:
             algorithm = COMPRESSION_ZLIB
@@ -303,7 +487,11 @@ final class PakReader {
             algorithm = header.isSolid ? COMPRESSION_LZ4 : COMPRESSION_LZ4_RAW
         }
 
-        guard let decompressed = decompress(compressedData, expectedSize: Int(entry.uncompressedSize), algorithm: algorithm) else {
+        guard let decompressed = decompress(
+            compressedData,
+            expectedSize: Int(entry.uncompressedSize),
+            algorithm: algorithm
+        ), decompressed.count == Int(entry.uncompressedSize) else {
             throw PakError.decompressionFailed
         }
 
@@ -317,9 +505,37 @@ final class PakReader {
         return normalized.hasPrefix("Mods/") && normalized.hasSuffix("/meta.lsx")
     }
 
+    private static func metaFolder(path: String) -> String? {
+        let components = path.replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/", omittingEmptySubsequences: false)
+        guard components.count == 3,
+              components[0].caseInsensitiveCompare("Mods") == .orderedSame,
+              components[2].caseInsensitiveCompare("meta.lsx") == .orderedSame else {
+            return nil
+        }
+        return String(components[1])
+    }
+
+    /// Resolves an archive path and proves it remains inside the extraction root.
+    static func safeExtractionURL(for entryName: String, in destinationFolder: URL) throws -> URL {
+        do {
+            return try ArchivePathValidator.safeDestination(
+                for: entryName,
+                in: destinationFolder
+            )
+        } catch {
+            throw PakError.unsafePath(entryName)
+        }
+    }
+
+    private static func containsRange(offset: UInt64, size: UInt64, in length: UInt64) -> Bool {
+        let (end, overflow) = offset.addingReportingOverflow(size)
+        return !overflow && offset <= length && end <= length
+    }
+
     private static func decompress(_ data: Data, expectedSize: Int, algorithm: compression_algorithm) -> Data? {
-        // Allow generous buffer (expected size + some slack)
-        let bufferSize = max(expectedSize, data.count * 4)
+        guard expectedSize > 0 else { return nil }
+        let bufferSize = expectedSize
         var decompressed = Data(count: bufferSize)
 
         let result = decompressed.withUnsafeMutableBytes { destBuffer in
@@ -337,7 +553,7 @@ final class PakReader {
             }
         }
 
-        guard result > 0 else { return nil }
+        guard result == expectedSize else { return nil }
         decompressed.count = result
         return decompressed
     }

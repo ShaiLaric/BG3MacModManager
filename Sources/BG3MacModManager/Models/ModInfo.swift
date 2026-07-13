@@ -4,7 +4,7 @@ import Foundation
 import CryptoKit
 
 /// Represents a single BG3 mod with all known metadata.
-struct ModInfo: Identifiable, Codable, Equatable {
+struct ModInfo: Identifiable, Codable, Equatable, Sendable {
     /// Unique identifier for this mod (from meta.lsx / info.json UUID field).
     let uuid: String
 
@@ -61,7 +61,7 @@ struct ModInfo: Identifiable, Codable, Equatable {
     }
 
     var isBasicGameModule: Bool {
-        uuid == Constants.baseModuleUUID || uuid == Constants.gustavDevUUID
+        Constants.requiredGameModuleUUIDs.contains(uuid.lowercased())
     }
 
     // MARK: - Factory Methods
@@ -111,7 +111,7 @@ struct ModInfo: Identifiable, Codable, Equatable {
 
     /// Generate a deterministic UUID from a string using SHA-256.
     /// This ensures the same filename always produces the same UUID across refreshes.
-    private static func deterministicUUID(from input: String) -> String {
+    static func deterministicUUID(from input: String) -> String {
         let digest = SHA256.hash(data: Data(input.lowercased().utf8))
         var bytes = Array(digest.prefix(16))
         // Set version nibble (byte 6, high nibble) to 5 (UUID v5-style)
@@ -130,7 +130,7 @@ struct ModInfo: Identifiable, Codable, Equatable {
 
 // MARK: - Supporting Types
 
-struct ModDependency: Codable, Equatable, Identifiable {
+struct ModDependency: Codable, Equatable, Identifiable, Sendable {
     let uuid: String
     var folder: String
     var name: String
@@ -141,7 +141,7 @@ struct ModDependency: Codable, Equatable, Identifiable {
 }
 
 /// Indicates how mod metadata was obtained.
-enum MetadataSource: String, Codable {
+enum MetadataSource: String, Codable, Sendable {
     case infoJson     // Parsed from info.json alongside the .pak
     case metaLsx      // Extracted from meta.lsx inside the .pak
     case filename     // Fallback: derived from the .pak filename
@@ -172,10 +172,19 @@ enum Constants {
     /// Legacy GustavDev UUID (pre-Patch 7).
     static let gustavDevUUID = "28ac9ce2-2aba-8cda-b3b5-6e922f71b6b8"
 
+    /// Gustav is still injected into modsettings by the game and must not be user-deactivated.
+    static let gustavUUID = "991c9c7a-fb80-40cb-8f0d-b92d4e80e9b1"
+
+    static let requiredGameModuleUUIDs: Set<String> = [
+        baseModuleUUID,
+        gustavDevUUID,
+        gustavUUID,
+    ]
+
     /// All built-in game module UUIDs that should never be flagged as missing dependencies.
     /// Sourced from LaughingLeader/BG3ModManager IgnoredMods.json.
     static let builtInModuleUUIDs: Set<String> = [
-        "991c9c7a-fb80-40cb-8f0d-b92d4e80e9b1", // Gustav
+        gustavUUID, // Gustav
         "28ac9ce2-2aba-8cda-b3b5-6e922f71b6b8", // GustavDev
         "cb555efe-2d9e-131f-8195-a89329d218ea", // GustavX
         "ed539163-bb70-431b-96a7-f5b2eda5376b", // Shared

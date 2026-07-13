@@ -5,7 +5,7 @@ import SwiftUI
 /// Load order tier for category-aware smart sorting.
 /// Based on the BG3 Modding Community Wiki's 5-tier convention:
 /// https://wiki.bg3.community/en/Tutorials/Mod-Use/general-load-order
-enum ModCategory: Int, Codable, CaseIterable, Comparable {
+enum ModCategory: Int, Codable, CaseIterable, Comparable, Sendable {
     /// Frameworks & libraries that other mods depend on. Load first.
     case framework = 1
     /// Gameplay, action, and bug-fix mods.

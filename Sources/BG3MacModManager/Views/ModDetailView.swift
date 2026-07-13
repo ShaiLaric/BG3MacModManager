@@ -274,6 +274,18 @@ struct ModDetailView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .help("Open this mod's Nexus page to download the update")
+                    } else if updateInfo.versionDiffers {
+                        Image(systemName: "arrow.left.arrow.right.circle.fill")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Nexus Version Differs: \(updateInfo.latestVersion)")
+                                .font(.caption.bold())
+                                .foregroundStyle(.orange)
+                            Text("Installed: \(updateInfo.installedVersion)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
                     } else {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)

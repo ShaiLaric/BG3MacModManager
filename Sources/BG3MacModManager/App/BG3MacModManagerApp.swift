@@ -190,8 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switch response {
         case .save:
             Task { @MainActor in
-                await appState.performSave()
-                NSApplication.shared.reply(toApplicationShouldTerminate: true)
+                let saved = await appState.performSave()
+                NSApplication.shared.reply(toApplicationShouldTerminate: saved)
             }
             return .terminateLater
         case .dontSave:
@@ -220,8 +220,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switch response {
         case .save:
             Task { @MainActor in
-                await appState.performSave()
-                sender.close()
+                if await appState.performSave() {
+                    sender.close()
+                }
             }
             return false
         case .dontSave:

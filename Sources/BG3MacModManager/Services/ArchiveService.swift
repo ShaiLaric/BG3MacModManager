@@ -4,13 +4,15 @@ import Foundation
 import ZIPFoundation
 
 /// Handles extraction of various archive formats (ZIP, tar variants) and ZIP creation.
-final class ArchiveService {
+struct ArchiveService: Sendable {
 
     enum ArchiveError: Error, LocalizedError {
         case unsupportedFormat(String)
         case extractionFailed(String)
         case tarNotFound
         case zipCreationFailed(String)
+        case unsafeEntry(String)
+        case archiveTooLarge
 
         var errorDescription: String? {
             switch self {
@@ -22,6 +24,10 @@ final class ArchiveService {
                 return "/usr/bin/tar not found"
             case .zipCreationFailed(let msg):
                 return "Failed to create ZIP archive: \(msg)"
+            case .unsafeEntry(let path):
+                return "Archive contains an unsafe path or link: \(path)"
+            case .archiveTooLarge:
+                return "Archive expands beyond the 8 GiB safety limit"
             }
         }
     }
@@ -82,6 +88,32 @@ final class ArchiveService {
     // MARK: - ZIP Extraction (ZIPFoundation)
 
     private func extractZip(_ url: URL, to destination: URL) throws {
+        let archive = try Archive(url: url, accessMode: .read)
+
+        var totalSize: UInt64 = 0
+        for entry in archive {
+            try Task.checkCancellation()
+            guard entry.type != .symlink else {
+                throw ArchiveError.unsafeEntry(entry.path)
+            }
+            do {
+                _ = try ArchivePathValidator.safeDestination(
+                    for: entry.path,
+                    in: destination,
+                    isDirectory: entry.type == .directory
+                )
+            } catch {
+                throw ArchiveError.unsafeEntry(entry.path)
+            }
+            let (newTotal, overflow) = totalSize.addingReportingOverflow(
+                UInt64(entry.uncompressedSize)
+            )
+            guard !overflow, newTotal <= 8 * 1_024 * 1_024 * 1_024 else {
+                throw ArchiveError.archiveTooLarge
+            }
+            totalSize = newTotal
+        }
+
         try FileManager.default.unzipItem(at: url, to: destination)
     }
 
@@ -93,7 +125,32 @@ final class ArchiveService {
             throw ArchiveError.tarNotFound
         }
 
-        // macOS tar auto-detects compression format
+        // Reject traversal paths and link entries before extraction. Links are not needed for
+        // BG3 mod packages and can redirect later archive entries outside the destination.
+        let names = try runTar(arguments: ["tf", url.path])
+        for name in names.split(separator: "\n", omittingEmptySubsequences: true) {
+            try Task.checkCancellation()
+            let path = String(name)
+            do {
+                _ = try ArchivePathValidator.safeDestination(
+                    for: path,
+                    in: destination,
+                    isDirectory: path.hasSuffix("/")
+                )
+            } catch {
+                throw ArchiveError.unsafeEntry(path)
+            }
+        }
+
+        let verboseListing = try runTar(arguments: ["tvf", url.path])
+        for line in verboseListing.split(separator: "\n", omittingEmptySubsequences: true) {
+            try Task.checkCancellation()
+            if line.first == "l" || line.first == "h" {
+                throw ArchiveError.unsafeEntry(String(line))
+            }
+        }
+
+        // macOS tar auto-detects compression format.
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tarPath)
         process.arguments = ["xf", url.path, "-C", destination.path]
@@ -109,6 +166,25 @@ final class ArchiveService {
             let errorMsg = String(data: errorData, encoding: .utf8) ?? "Unknown error"
             throw ArchiveError.extractionFailed(errorMsg)
         }
+    }
+
+    private func runTar(arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        process.arguments = arguments
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let errorData = error.fileHandleForReading.readDataToEndOfFile()
+            let message = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            throw ArchiveError.extractionFailed(message)
+        }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     // MARK: - ZIP Creation

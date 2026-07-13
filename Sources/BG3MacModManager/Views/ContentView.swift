@@ -277,15 +277,17 @@ struct ContentView: View {
             if let se = appState.seStatus {
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(se.isInstalled ? Color.green : Color.gray)
+                        .fill(se.isDeployed ? Color.green : (se.isInstalled ? Color.orange : Color.gray))
                         .frame(width: 8, height: 8)
-                    Text(se.isInstalled ? "SE Active" : "SE Not Found")
+                    Text(se.isDeployed ? "SE Active" : (se.isInstalled ? "SE Installed" : "SE Not Found"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .help(se.isInstalled
+                .help(se.isDeployed
                     ? "bg3se-macos is deployed — Script Extender mods will work"
-                    : "bg3se-macos not detected — Script Extender mods will not function")
+                    : (se.isInstalled
+                        ? "bg3se-macos data exists, but its dylib is not deployed"
+                        : "bg3se-macos not detected — Script Extender mods will not function"))
             }
         }
         .padding(.horizontal, 12)
@@ -308,15 +310,14 @@ struct ContentView: View {
 
     private func handleFileDrop(_ providers: [NSItemProvider]) {
         let group = DispatchGroup()
-        let collectQueue = DispatchQueue(label: "bg3mm.drop-url-collector")
-        var urls: [URL] = []
+        let collector = DropURLCollector()
 
         for provider in providers {
             if provider.canLoadObject(ofClass: URL.self) {
                 group.enter()
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
                     if let url = url {
-                        collectQueue.sync { urls.append(url) }
+                        collector.append(url)
                     }
                     group.leave()
                 }
@@ -324,6 +325,7 @@ struct ContentView: View {
         }
 
         group.notify(queue: .main) {
+            let urls = collector.values
             let supported = urls.filter {
                 Self.supportedDropExtensions.contains($0.pathExtension.lowercased())
             }
@@ -332,6 +334,23 @@ struct ContentView: View {
                 await appState.importMods(from: supported)
             }
         }
+    }
+}
+
+private final class DropURLCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [URL] = []
+
+    func append(_ url: URL) {
+        lock.lock()
+        storage.append(url)
+        lock.unlock()
+    }
+
+    var values: [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
     }
 }
 

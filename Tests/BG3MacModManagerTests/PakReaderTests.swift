@@ -103,6 +103,22 @@ final class PakReaderTests: XCTestCase {
         }
     }
 
+    func testOversizedFileListIsRejectedBeforeAllocation() {
+        var data = Data([0x4C, 0x53, 0x50, 0x4B])
+        data.append(littleEndianBytes(UInt32(18)))
+        data.append(littleEndianBytes(UInt64(40)))
+        data.append(littleEndianBytes(UInt32(64 * 1_024 * 1_024 + 1)))
+        data.append(Data(count: 20))
+        let url = writeTempBinary(name: "oversized-list.pak", data: data)
+
+        XCTAssertThrowsError(try PakReader.listFiles(at: url)) { error in
+            guard case PakReader.PakError.limitExceeded = error else {
+                XCTFail("Expected limitExceeded, got \(error)")
+                return
+            }
+        }
+    }
+
     // MARK: - Nonexistent File
 
     func testListFilesOnNonexistentPathThrows() {
@@ -126,6 +142,108 @@ final class PakReaderTests: XCTestCase {
     func testContainsScriptExtenderReturnsFalseForNonexistentFile() {
         let url = URL(fileURLWithPath: "/tmp/nonexistent_\(UUID().uuidString).pak")
         XCTAssertFalse(PakReader.containsScriptExtender(at: url))
+    }
+
+    // MARK: - Legacy Uncompressed Entries
+
+    func testExtractsUncompressedEntryWhoseExpandedSizeIsZero() throws {
+        let metadata = Data("""
+        <?xml version="1.0" encoding="utf-8"?>
+        <save><region id="Config"><node id="root"><children>
+        <node id="ModuleInfo"><attribute id="UUID" type="guid" value="755a8a72-407f-4f0d-9a33-274ac0f0b53d"/></node>
+        </children></node></region></save>
+        """.utf8)
+        let url = writeTempBinary(
+            name: "legacy-uncompressed.pak",
+            data: makeSingleEntryPak(
+                name: "Mods/BG3MCM/meta.lsx",
+                contents: metadata,
+                uncompressedSize: 0,
+                flags: 0
+            )
+        )
+
+        XCTAssertEqual(try PakReader.extractMetaLsx(from: url), metadata)
+    }
+
+    func testLegacyZeroExpandedSizeStillCountsAgainstExtractionLimit() {
+        let metadata = Data(repeating: 0x41, count: 32)
+        let url = writeTempBinary(
+            name: "legacy-uncompressed-limit.pak",
+            data: makeSingleEntryPak(
+                name: "Mods/Test/meta.lsx",
+                contents: metadata,
+                uncompressedSize: 0,
+                flags: 0
+            )
+        )
+        let limits = PakReader.Limits(
+            maximumFileCount: 10,
+            maximumFileListBytes: 1_024,
+            maximumCompressedEntryBytes: 1_024,
+            maximumUncompressedEntryBytes: 16,
+            maximumTotalExtractionBytes: 1_024
+        )
+
+        XCTAssertThrowsError(try PakReader.extractMetaLsx(from: url, limits: limits)) { error in
+            guard case PakReader.PakError.limitExceeded = error else {
+                XCTFail("Expected limitExceeded, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testPreferredMetadataFolderWinsWhenPakContainsBuiltInMetadata() throws {
+        let gustavMetadata = Data("<save><node id=\"ModuleInfo\"><attribute id=\"Name\" value=\"Gustav\"/></node></save>".utf8)
+        let modMetadata = Data("<save><node id=\"ModuleInfo\"><attribute id=\"Name\" value=\"Party Limit Begone\"/></node></save>".utf8)
+        let url = writeTempBinary(
+            name: "PartyLimitBegone.pak",
+            data: makeUncompressedTestPak(entries: [
+                ("Mods/Gustav/meta.lsx", gustavMetadata),
+                ("Mods/PartyLimitBegone/meta.lsx", modMetadata),
+            ])
+        )
+
+        XCTAssertEqual(
+            try PakReader.extractMetaLsx(
+                from: url,
+                preferredFolder: "partylimitbegone"
+            ),
+            modMetadata
+        )
+        XCTAssertEqual(try PakReader.extractMetaLsx(from: url), gustavMetadata)
+    }
+
+    // MARK: - Extraction Path Safety
+
+    func testSafeExtractionPathStaysInsideDestination() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pak-extract-\(UUID().uuidString)")
+        let result = try PakReader.safeExtractionURL(
+            for: "Mods/Example/meta.lsx",
+            in: root
+        )
+        XCTAssertEqual(result.path, root.appendingPathComponent("Mods/Example/meta.lsx").path)
+    }
+
+    func testExtractionRejectsTraversalAbsoluteAndWindowsPaths() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pak-extract-\(UUID().uuidString)")
+        let unsafePaths = [
+            "../../outside.txt",
+            "Mods/../outside.txt",
+            "/tmp/outside.txt",
+            "C:\\outside.txt",
+            "Mods//outside.txt",
+            "",
+        ]
+
+        for path in unsafePaths {
+            XCTAssertThrowsError(
+                try PakReader.safeExtractionURL(for: path, in: root),
+                "Expected unsafe archive path to be rejected: \(path)"
+            )
+        }
     }
 
     // MARK: - CompressionType Enum
@@ -172,5 +290,48 @@ final class PakReaderTests: XCTestCase {
     func testPakErrorUnsupportedVersionIncludesVersion() {
         let error = PakReader.PakError.unsupportedVersion(14)
         XCTAssertTrue(error.errorDescription!.contains("14"))
+    }
+
+    private func littleEndianBytes<T: FixedWidthInteger>(_ value: T) -> Data {
+        var value = value.littleEndian
+        return withUnsafeBytes(of: &value) { Data($0) }
+    }
+
+    private func makeSingleEntryPak(
+        name: String,
+        contents: Data,
+        uncompressedSize: UInt32,
+        flags: UInt8
+    ) -> Data {
+        let headerByteCount = 40
+        let entryByteCount = 272
+        let fileListOffset = UInt64(headerByteCount + contents.count)
+        let fileListSize = UInt32(8 + entryByteCount)
+
+        var pak = Data([0x4C, 0x53, 0x50, 0x4B])
+        pak.append(littleEndianBytes(UInt32(18)))
+        pak.append(littleEndianBytes(fileListOffset))
+        pak.append(littleEndianBytes(fileListSize))
+        pak.append(contentsOf: [0, 0])
+        pak.append(Data(count: 16))
+        pak.append(littleEndianBytes(UInt16(1)))
+        XCTAssertEqual(pak.count, headerByteCount)
+
+        pak.append(contents)
+        pak.append(littleEndianBytes(UInt32(1)))
+        pak.append(littleEndianBytes(UInt32(entryByteCount)))
+
+        var entry = Data(name.utf8)
+        precondition(entry.count <= 256)
+        entry.append(Data(count: 256 - entry.count))
+        entry.append(littleEndianBytes(UInt32(headerByteCount)))
+        entry.append(littleEndianBytes(UInt16(0)))
+        entry.append(contentsOf: [0, flags])
+        entry.append(littleEndianBytes(UInt32(contents.count)))
+        entry.append(littleEndianBytes(uncompressedSize))
+        XCTAssertEqual(entry.count, entryByteCount)
+        pak.append(entry)
+
+        return pak
     }
 }

@@ -4,7 +4,7 @@ import Foundation
 
 /// Interfaces with the Nexus Mods API v1 to check for mod updates.
 /// Requires a personal API key configured in Settings.
-final class NexusAPIService {
+actor NexusAPIService {
 
     // MARK: - Types
 
@@ -52,6 +52,7 @@ final class NexusAPIService {
     private let baseURL = "https://api.nexusmods.com/v1"
     private let gameDomain = "baldursgate3"
     private let session: URLSession
+    nonisolated let credentialStore: NexusCredentialStore
 
     /// Minimum interval between API requests (to respect rate limits).
     private let requestInterval: TimeInterval = 1.0
@@ -63,91 +64,119 @@ final class NexusAPIService {
 
     private var cache: NexusUpdateCache
 
-    private static var cacheURL: URL {
-        FileLocations.appSupportDirectory.appendingPathComponent("nexus_update_cache.json")
-    }
+    private let cacheURL: URL
 
     // MARK: - Initialization
 
-    init() {
+    init(
+        session: URLSession? = nil,
+        credentialStore: NexusCredentialStore = NexusCredentialStore(),
+        cacheURL: URL = FileLocations.appSupportDirectory
+            .appendingPathComponent("nexus_update_cache.json")
+    ) {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
-        session = URLSession(configuration: config)
-        cache = Self.loadCache()
+        self.session = session ?? URLSession(configuration: config)
+        self.credentialStore = credentialStore
+        self.cacheURL = cacheURL
+        credentialStore.migrateLegacyValueIfNeeded()
+        cache = Self.loadCache(from: cacheURL)
     }
 
     // MARK: - Public API
 
-    /// Get the API key from UserDefaults.
-    var apiKey: String? {
-        let key = UserDefaults.standard.string(forKey: "nexusAPIKey")
-        return (key?.isEmpty == false) ? key : nil
+    /// Get the API key from the user's Keychain.
+    nonisolated var apiKey: String? {
+        credentialStore.apiKey()
     }
 
-    /// Check for updates for all mods that have Nexus URLs.
-    /// Returns a dictionary of UUID -> NexusUpdateResult.
+    /// Check update candidates and return explicit completion/error accounting.
     func checkForUpdates(
-        mods: [ModInfo],
-        nexusURLService: NexusURLService,
-        progress: @escaping (Int, Int) -> Void
-    ) async throws -> [String: NexusUpdateResult] {
+        candidates: [NexusUpdateCandidate],
+        progress: @escaping @Sendable (Int, Int) -> Void
+    ) async throws -> NexusUpdateCheckReport {
         guard let apiKey = apiKey else { throw APIError.noAPIKey }
 
-        let modsWithURLs = mods.compactMap { mod -> (ModInfo, String, Int)? in
-            guard let urlString = nexusURLService.url(for: mod.uuid),
-                  let modID = extractModID(from: urlString) else {
+        let total = candidates.count
+        var skipped = 0
+        let validCandidates = candidates.compactMap {
+            candidate -> (NexusUpdateCandidate, Int)? in
+            guard let modID = extractModID(from: candidate.nexusURL) else {
+                skipped += 1
                 return nil
             }
-            return (mod, urlString, modID)
+            return (candidate, modID)
         }
 
-        var results: [String: NexusUpdateResult] = cache.results
-        let total = modsWithURLs.count
+        var results: [String: NexusUpdateResult] = [:]
         var checked = 0
+        var cached = 0
+        var failed = 0
+        var completed = skipped
+        var rateLimited = false
+        var madeNetworkRequest = false
+        progress(completed, total)
 
-        for (mod, urlString, modID) in modsWithURLs {
-            // Skip if recently checked
-            if let cached = cache.results[mod.uuid],
-               Date().timeIntervalSince(cached.checkedDate) < Self.cacheMaxAge {
-                checked += 1
-                progress(checked, total)
+        for (candidate, modID) in validCandidates {
+            let uuid = ModIdentity.comparisonKey(candidate.modUUID)
+            if let cachedResult = cache.results[uuid],
+               cachedResult.installedVersion == candidate.installedVersion,
+               cachedResult.nexusURL == candidate.nexusURL,
+               Date().timeIntervalSince(cachedResult.checkedDate) < Self.cacheMaxAge {
+                results[uuid] = cachedResult
+                cached += 1
+                completed += 1
+                progress(completed, total)
                 continue
             }
 
             // Rate limiting: wait between requests
-            if checked > 0 {
+            if madeNetworkRequest {
                 try await Task.sleep(nanoseconds: UInt64(requestInterval * 1_000_000_000))
             }
+            madeNetworkRequest = true
 
             do {
                 let response = try await fetchModInfo(modID: modID, apiKey: apiKey)
                 let result = NexusUpdateResult(
-                    modUUID: mod.uuid,
+                    modUUID: uuid,
                     nexusModID: modID,
-                    installedVersion: mod.version.description,
+                    installedVersion: candidate.installedVersion,
                     latestVersion: response.version,
                     latestName: response.name,
                     updatedDate: response.updatedDate,
-                    nexusURL: urlString,
+                    nexusURL: candidate.nexusURL,
                     checkedDate: Date()
                 )
-                results[mod.uuid] = result
+                results[uuid] = result
+                cache.results[uuid] = result
+                checked += 1
             } catch APIError.rateLimited {
-                // Stop checking on rate limit
+                rateLimited = true
                 break
             } catch {
-                // Log but continue with other mods
+                failed += 1
             }
 
-            checked += 1
-            progress(checked, total)
+            completed += 1
+            progress(completed, total)
         }
 
-        cache.results = results
-        cache.lastFullCheck = Date()
-        saveCache()
+        if !rateLimited, failed == 0, completed == total {
+            cache.lastFullCheck = Date()
+        }
+        let cachePersisted = saveCache()
 
-        return results
+        return NexusUpdateCheckReport(
+            results: results,
+            checkedCount: checked,
+            cachedCount: cached,
+            failedCount: failed,
+            skippedCount: skipped,
+            rateLimited: rateLimited,
+            totalCount: total,
+            cachePersisted: cachePersisted
+        )
     }
 
     /// Get cached result for a specific mod.
@@ -158,7 +187,7 @@ final class NexusAPIService {
     /// Clear all cached update data.
     func clearCache() {
         cache = NexusUpdateCache()
-        saveCache()
+        _ = saveCache()
     }
 
     // MARK: - API Calls
@@ -202,7 +231,7 @@ final class NexusAPIService {
     // MARK: - Helpers
 
     /// Extract numeric mod ID from Nexus URL.
-    func extractModID(from url: String) -> Int? {
+    nonisolated func extractModID(from url: String) -> Int? {
         let pattern = #"/mods/(\d+)"#
         guard let range = url.range(of: pattern, options: .regularExpression) else { return nil }
         let matched = url[range]
@@ -212,27 +241,33 @@ final class NexusAPIService {
 
     // MARK: - Cache Persistence
 
-    private static func loadCache() -> NexusUpdateCache {
-        guard let data = try? Data(contentsOf: cacheURL) else {
+    private static func loadCache(from url: URL) -> NexusUpdateCache {
+        guard let data = try? Data(contentsOf: url) else {
             return NexusUpdateCache()
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let decoded = try? decoder.decode(NexusUpdateCache.self, from: data) else {
+        guard var decoded = try? decoder.decode(NexusUpdateCache.self, from: data) else {
             return NexusUpdateCache()
         }
+        decoded.results = Dictionary(
+            decoded.results.map { (ModIdentity.comparisonKey($0.key), $0.value) },
+            uniquingKeysWith: { _, latest in latest }
+        )
         return decoded
     }
 
-    private func saveCache() {
+    @discardableResult
+    private func saveCache() -> Bool {
         do {
             try FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(cache)
-            try data.write(to: Self.cacheURL, options: .atomic)
+            try data.write(to: cacheURL, options: .atomic)
+            return true
         } catch {
-            // Non-fatal: cache just won't persist
+            return false
         }
     }
 }

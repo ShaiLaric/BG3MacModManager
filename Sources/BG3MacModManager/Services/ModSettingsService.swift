@@ -7,7 +7,7 @@ import Foundation
 /// The file has two key sections:
 /// - `ModOrder`: ordered list of mod UUIDs (defines load sequence)
 /// - `Mods`: `ModuleShortDesc` entries with full metadata per mod
-final class ModSettingsService {
+struct ModSettingsService: Sendable {
 
     enum ModSettingsError: Error, LocalizedError {
         case fileNotFound
@@ -64,7 +64,7 @@ final class ModSettingsService {
         let orderNodes = try document.nodes(forXPath: "//node[@id='ModOrder']/children/node[@id='Module']")
         let modOrder = orderNodes.compactMap { node -> String? in
             guard let element = node as? XMLElement else { return nil }
-            return element.attributeElement(id: "UUID")
+            return ModIdentity.normalizedUUID(element.attributeElement(id: "UUID"))
         }
 
         // Parse Mods section
@@ -73,7 +73,9 @@ final class ModSettingsService {
 
         for node in modNodes {
             guard let element = node as? XMLElement else { continue }
-            guard let uuid = element.attributeElement(id: "UUID") else { continue }
+            guard let uuid = ModIdentity.normalizedUUID(
+                element.attributeElement(id: "UUID")
+            ) else { continue }
 
             let desc = ModuleShortDesc(
                 folder:    element.attributeElement(id: "Folder") ?? "",

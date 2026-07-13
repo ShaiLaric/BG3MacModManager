@@ -128,18 +128,15 @@ final class NexusURLImportService {
     }
 
     func parseCSVContent(_ content: String, separator: Character) -> [ParsedEntry] {
-        let lines = content.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        let records = parseDelimitedRecords(content, separator: separator)
+            .filter { !$0.allSatisfy { $0.isEmpty } }
 
-        guard !lines.isEmpty else { return [] }
+        guard !records.isEmpty else { return [] }
 
         var entries: [ParsedEntry] = []
-        let startIndex = looksLikeHeader(lines[0], separator: separator) ? 1 : 0
+        let startIndex = looksLikeHeader(records[0]) ? 1 : 0
 
-        for line in lines[startIndex...] {
-            let fields = line.split(separator: separator, omittingEmptySubsequences: false)
-                .map { String($0).trimmingCharacters(in: .whitespaces) }
+        for fields in records[startIndex...] {
 
             if fields.count >= 2 {
                 // Two-column: identifier + URL
@@ -296,12 +293,13 @@ final class NexusURLImportService {
             // Try fuzzy name match (contains, ignoring case)
             if !id.isEmpty {
                 let lowered = id.lowercased()
-                if let mod = mods.first(where: {
+                let candidates = lowered.count >= 4 ? mods.filter {
                     !matchedUUIDs.contains($0.uuid) && (
                         $0.name.lowercased().contains(lowered) ||
                         lowered.contains($0.name.lowercased())
                     )
-                }) {
+                } : []
+                if candidates.count == 1, let mod = candidates.first {
                     matched.append(MatchedEntry(
                         parsedEntry: entry, matchedMod: mod, matchType: .fuzzyName
                     ))
@@ -325,8 +323,13 @@ final class NexusURLImportService {
 
     func isNexusURL(_ string: String) -> Bool {
         guard let components = URLComponents(string: string),
-              let host = components.host?.lowercased() else { return false }
-        return host == "nexusmods.com" || host.hasSuffix(".nexusmods.com")
+              components.scheme?.lowercased() == "https",
+              let host = components.host?.lowercased(),
+              host == "nexusmods.com" || host.hasSuffix(".nexusmods.com") else { return false }
+        return components.path.range(
+            of: #"^/baldursgate3/mods/\d+/?$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     /// Extract mod ID from a Nexus URL like
@@ -343,14 +346,62 @@ final class NexusURLImportService {
         return String(url[numRange])
     }
 
-    private func looksLikeHeader(_ line: String, separator: Character) -> Bool {
+    private func looksLikeHeader(_ fields: [String]) -> Bool {
         let knownHeaderNames: Set<String> = [
             "name", "mod", "mod_name", "mod name", "modname", "title",
             "url", "nexus_url", "nexusurl", "nexus url", "nexus_link", "link",
             "uuid", "id", "identifier", "mod_id",
         ]
-        let fields = line.split(separator: separator, omittingEmptySubsequences: false)
-            .map { String($0).trimmingCharacters(in: .whitespaces).lowercased() }
-        return fields.contains { knownHeaderNames.contains($0) }
+        return fields.contains { knownHeaderNames.contains($0.lowercased()) }
+    }
+
+    /// RFC 4180-style delimited parser supporting quoted separators, escaped quotes, and newlines.
+    private func parseDelimitedRecords(
+        _ content: String,
+        separator: Character
+    ) -> [[String]] {
+        var records: [[String]] = []
+        var record: [String] = []
+        var field = ""
+        var inQuotes = false
+        var index = content.startIndex
+
+        func finishField() {
+            record.append(field.trimmingCharacters(in: .whitespacesAndNewlines))
+            field = ""
+        }
+        func finishRecord() {
+            finishField()
+            records.append(record)
+            record = []
+        }
+
+        while index < content.endIndex {
+            let character = content[index]
+            let next = content.index(after: index)
+            if character == "\"" {
+                if inQuotes, next < content.endIndex, content[next] == "\"" {
+                    field.append("\"")
+                    index = content.index(after: next)
+                    continue
+                }
+                inQuotes.toggle()
+            } else if character == separator, !inQuotes {
+                finishField()
+            } else if (character == "\n" || character == "\r"), !inQuotes {
+                finishRecord()
+                if character == "\r", next < content.endIndex, content[next] == "\n" {
+                    index = content.index(after: next)
+                    continue
+                }
+            } else {
+                field.append(character)
+            }
+            index = next
+        }
+        if !field.isEmpty || !record.isEmpty {
+            finishRecord()
+        }
+        return records
     }
 }

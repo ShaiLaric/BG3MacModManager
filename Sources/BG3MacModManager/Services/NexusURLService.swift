@@ -10,17 +10,26 @@ final class NexusURLService {
 
     /// Get the stored Nexus URL for a mod, if any.
     func url(for modUUID: String) -> String? {
-        urls[modUUID]
+        urls[ModIdentity.comparisonKey(modUUID)]
     }
 
     /// Set or update the Nexus URL for a mod. Pass nil or empty string to clear.
-    func setURL(_ url: String?, for modUUID: String) {
+    @discardableResult
+    func setURL(_ url: String?, for modUUID: String) -> Bool {
+        let previous = urls
+        let modUUID = ModIdentity.comparisonKey(modUUID)
         if let url = url, !url.isEmpty {
             urls[modUUID] = url
         } else {
             urls.removeValue(forKey: modUUID)
         }
-        save()
+        do {
+            try save()
+            return true
+        } catch {
+            urls = previous
+            return false
+        }
     }
 
     /// All stored URLs (for bulk lookup during import).
@@ -30,44 +39,52 @@ final class NexusURLService {
 
     /// Set multiple URLs at once (for bulk import operations).
     /// Each key is a mod UUID, each value is the Nexus URL.
-    func bulkSetURLs(_ newURLs: [String: String]) {
+    @discardableResult
+    func bulkSetURLs(_ newURLs: [String: String]) -> Bool {
+        let previous = urls
         for (uuid, url) in newURLs {
+            let uuid = ModIdentity.comparisonKey(uuid)
             if url.isEmpty {
                 urls.removeValue(forKey: uuid)
             } else {
                 urls[uuid] = url
             }
         }
-        save()
+        do {
+            try save()
+            return true
+        } catch {
+            urls = previous
+            return false
+        }
     }
 
     // MARK: - Persistence
 
     private var urls: [String: String] = [:]
 
-    private static var storageURL: URL {
-        FileLocations.appSupportDirectory.appendingPathComponent("nexus_urls.json")
-    }
+    private let storageURL: URL
 
-    init() {
+    init(storageURL: URL? = nil) {
+        self.storageURL = storageURL
+            ?? FileLocations.appSupportDirectory.appendingPathComponent("nexus_urls.json")
         load()
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: Self.storageURL),
+        guard let data = try? Data(contentsOf: storageURL),
               let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
             return
         }
-        urls = decoded
+        urls = Dictionary(
+            decoded.map { (ModIdentity.comparisonKey($0.key), $0.value) },
+            uniquingKeysWith: { _, latest in latest }
+        )
     }
 
-    private func save() {
-        do {
-            try FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
-            let data = try JSONEncoder().encode(urls)
-            try data.write(to: Self.storageURL, options: .atomic)
-        } catch {
-            // Non-fatal: URLs just won't persist
-        }
+    private func save() throws {
+        try FileLocations.ensureDirectoryExists(storageURL.deletingLastPathComponent())
+        let data = try JSONEncoder().encode(urls)
+        try data.write(to: storageURL, options: .atomic)
     }
 }
