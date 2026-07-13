@@ -93,7 +93,7 @@ actor NexusAPIService {
     /// Check update candidates and return explicit completion/error accounting.
     func checkForUpdates(
         candidates: [NexusUpdateCandidate],
-        progress: @escaping @Sendable (Int, Int) -> Void
+        progress: @escaping @Sendable (Int, Int) async -> Void
     ) async throws -> NexusUpdateCheckReport {
         guard let apiKey = apiKey else { throw APIError.noAPIKey }
 
@@ -115,7 +115,7 @@ actor NexusAPIService {
         var completed = skipped
         var rateLimited = false
         var madeNetworkRequest = false
-        progress(completed, total)
+        await progress(completed, total)
 
         for (candidate, modID) in validCandidates {
             let uuid = ModIdentity.comparisonKey(candidate.modUUID)
@@ -126,7 +126,7 @@ actor NexusAPIService {
                 results[uuid] = cachedResult
                 cached += 1
                 completed += 1
-                progress(completed, total)
+                await progress(completed, total)
                 continue
             }
 
@@ -159,7 +159,7 @@ actor NexusAPIService {
             }
 
             completed += 1
-            progress(completed, total)
+            await progress(completed, total)
         }
 
         if !rateLimited, failed == 0, completed == total {

@@ -1523,10 +1523,8 @@ final class AppState: ObservableObject {
             }
             let report = try await nexusAPIService.checkForUpdates(
                 candidates: candidates
-            ) { [weak self] checked, total in
-                Task { @MainActor in
-                    self?.updateCheckProgress = (checked, total)
-                }
+            ) { checked, total in
+                await self.setUpdateCheckProgress(checked: checked, total: total)
             }
             nexusUpdateResults = report.results
             if !report.cachePersisted {
@@ -1551,6 +1549,10 @@ final class AppState: ObservableObject {
         } catch {
             showError(error)
         }
+    }
+
+    private func setUpdateCheckProgress(checked: Int, total: Int) {
+        updateCheckProgress = (checked, total)
     }
 
     /// Whether a mod has an available update on Nexus.
