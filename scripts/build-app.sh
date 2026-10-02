@@ -9,9 +9,12 @@ set -euo pipefail
 #   ./scripts/build-app.sh --sign "Developer ID Application: Name (TeamID)" \
 #       --notarize --keychain-profile "BG3MacModManager"
 #
-# First-time notarization setup (store credentials once):
+# First-time notarization setup (store credentials once). Local builds use an
+# App Store Connect API key (Users and Access > Integrations > Team Keys,
+# Developer role), which avoids Apple ID password lockouts:
 #   xcrun notarytool store-credentials "BG3MacModManager" \
-#       --apple-id you@email.com --team-id TEAMID --password <app-specific-password>
+#       --key AuthKey_KEYID.p8 --key-id KEYID --issuer ISSUER-ID
+# CI instead passes --apple-id, --team-id, and --password-env (app-specific password).
 #
 # For a styled DMG with icon positioning, install create-dmg:
 #   brew install create-dmg
@@ -260,9 +263,9 @@ elif [ -n "$SIGN_IDENTITY" ]; then
     echo "DMG is signed but NOT notarized."
     echo "macOS Gatekeeper requires notarization for downloaded apps."
     echo ""
-    echo "To notarize, first store credentials (one-time setup):"
+    echo "To notarize, first store an App Store Connect API key (one-time setup):"
     echo "  xcrun notarytool store-credentials \"BG3MacModManager\" \\"
-    echo "      --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID"
+    echo "      --key AuthKey_KEYID.p8 --key-id KEYID --issuer ISSUER-ID"
     echo ""
     echo "Then build with notarization:"
     echo "  $0 --sign \"$SIGN_IDENTITY\" --notarize --keychain-profile \"BG3MacModManager\""

@@ -88,9 +88,31 @@ For creating universal binaries (Intel + Apple Silicon) with code signing for di
 
 # Or sign with Developer ID for public distribution
 ./scripts/build-app.sh --sign "Developer ID Application: Your Name (TEAMID)"
+
+# Sign, notarize, and staple the app and DMG
+./scripts/build-app.sh --sign "Developer ID Application: Your Name (TEAMID)" \
+    --notarize --keychain-profile "BG3MacModManager"
 ```
 
-The app bundle will be created at `build/BG3 Mac Mod Manager.app`.
+The app bundle will be created at `build/BG3 Mac Mod Manager.app`, and the DMG at
+`build/BG3 Mac Mod Manager.dmg`.
+
+**Notarization credentials.** Local builds notarize with an App Store Connect API key stored as
+the `BG3MacModManager` notarytool keychain profile. API keys avoid Apple ID password lockouts,
+which can make `notarytool` report an Apple ID as locked when it is not. To set it up once:
+
+1. In [App Store Connect](https://appstoreconnect.apple.com), open **Users and Access →
+   Integrations → Team Keys**, generate a key with the **Developer** role, and download the
+   `.p8` file (it can be downloaded only once — keep it in a password manager).
+2. Store it, using the Key ID and Issuer ID shown on that page:
+
+   ```bash
+   xcrun notarytool store-credentials "BG3MacModManager" \
+       --key ~/Downloads/AuthKey_KEYID.p8 --key-id KEYID --issuer ISSUER-ID
+   ```
+
+The GitHub release workflow notarizes separately, with the `APPLE_ID`, `APPLE_TEAM_ID`, and
+`NOTARY_PASSWORD` (app-specific password) repository secrets.
 
 ### Method 3: Direct SPM Build (Command-Line Only)
 

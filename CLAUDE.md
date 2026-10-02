@@ -8,6 +8,14 @@ BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 
 
 **In Claude Code environment, do not run `swift build`, `swift test`, or any Swift toolchain commands** — Swift is not installed in this environment. Verify correctness by reading code and checking that changes follow existing patterns. Note: the CI/CD release workflow does run tests before release.
 
+**Signed local builds** are run by the user, not Claude. Signing uses the Developer ID Application certificate issued from the G2 sub-CA (the G1 identity was replaced in October 2026). Local notarization uses the `BG3MacModManager` notarytool keychain profile, which holds an **App Store Connect API key** (Team Key, Developer role) — not an Apple ID password, which hit a false "Apple ID locked" error. The command is:
+
+```
+./scripts/build-app.sh --sign "Developer ID Application: SHAI SAMUEL LARIC (PQ5THK74S3)" --notarize --keychain-profile "BG3MacModManager"
+```
+
+CI notarizes with the `APPLE_ID` / `APPLE_TEAM_ID` / `NOTARY_PASSWORD` repository secrets and signs with `DEVELOPER_ID_CERTIFICATE_P12` / `DEVELOPER_ID_IDENTITY` (the new certificate's hash). A manual `workflow_dispatch` run of `release.yml` signs, notarizes, and uploads the DMG as an artifact without creating a release.
+
 ## Project Structure
 
 ```
