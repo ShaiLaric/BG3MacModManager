@@ -136,9 +136,9 @@ fi
 # Code sign the app bundle
 if [ -n "$SIGN_IDENTITY" ]; then
     echo "Signing app with: $SIGN_IDENTITY"
-    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
     echo "Verifying signature..."
-    codesign --verify --verbose "$APP_BUNDLE"
+    codesign --verify --strict --verbose=2 "$APP_BUNDLE"
 else
     echo "Ad-hoc signing (for local use)..."
     codesign --force --sign - "$APP_BUNDLE"
@@ -204,7 +204,7 @@ fi
 # Sign the DMG itself if using Developer ID
 if [ -n "$SIGN_IDENTITY" ]; then
     echo "Signing DMG..."
-    codesign --force --sign "$SIGN_IDENTITY" "$DMG_PATH"
+    codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
 fi
 
 DMG_SIZE=$(du -sh "$DMG_PATH" | cut -f1)
