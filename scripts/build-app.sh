@@ -144,6 +144,38 @@ else
     codesign --force --sign - "$APP_BUNDLE"
 fi
 
+# Submit a file to Apple's notary service and wait for the result.
+notarize() {
+    local NOTARY_ARGS=(submit "$1" --wait)
+
+    if [ -n "$KEYCHAIN_PROFILE" ]; then
+        NOTARY_ARGS+=(--keychain-profile "$KEYCHAIN_PROFILE")
+    else
+        NOTARY_ARGS+=(
+            --apple-id "$APPLE_ID"
+            --team-id "$TEAM_ID"
+            --password "${!NOTARY_PASSWORD_ENV}"
+        )
+    fi
+
+    xcrun notarytool "${NOTARY_ARGS[@]}"
+}
+
+# Notarize and staple the app before packaging, so the copy inside the DMG
+# carries its own ticket and passes Gatekeeper offline once copied out.
+if $NOTARIZE; then
+    echo ""
+    echo "=== Notarizing app ==="
+    APP_ZIP="$WORK_DIR/${APP_NAME}.zip"
+    ditto -c -k --keepParent "$APP_BUNDLE" "$APP_ZIP"
+    notarize "$APP_ZIP"
+    rm -f "$APP_ZIP"
+
+    echo "Stapling notarization ticket to app..."
+    xcrun stapler staple "$APP_BUNDLE"
+    xcrun stapler validate "$APP_BUNDLE"
+fi
+
 # Show build result
 APP_SIZE=$(du -sh "$APP_BUNDLE" | cut -f1)
 echo ""
@@ -213,29 +245,16 @@ echo "DMG created: $DMG_PATH ($DMG_SIZE)"
 # --- Notarization ---
 if $NOTARIZE; then
     echo ""
-    echo "=== Notarizing ==="
+    echo "=== Notarizing DMG ==="
     echo "Submitting DMG to Apple for notarization (this may take a few minutes)..."
-
-    NOTARY_ARGS=(submit "$DMG_PATH" --wait)
-
-    if [ -n "$KEYCHAIN_PROFILE" ]; then
-        NOTARY_ARGS+=(--keychain-profile "$KEYCHAIN_PROFILE")
-    else
-        NOTARY_ARGS+=(
-            --apple-id "$APPLE_ID"
-            --team-id "$TEAM_ID"
-            --password "${!NOTARY_PASSWORD_ENV}"
-        )
-    fi
-
-    xcrun notarytool "${NOTARY_ARGS[@]}"
+    notarize "$DMG_PATH"
 
     echo "Stapling notarization ticket to DMG..."
     xcrun stapler staple "$DMG_PATH"
 
     echo ""
     echo "=== Notarization Complete ==="
-    echo "DMG is signed, notarized, and ready for distribution: $DMG_PATH"
+    echo "App and DMG are signed, notarized, and stapled: $DMG_PATH"
 elif [ -n "$SIGN_IDENTITY" ]; then
     echo ""
     echo "DMG is signed but NOT notarized."

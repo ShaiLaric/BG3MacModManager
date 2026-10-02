@@ -70,29 +70,24 @@ jobs:
           # if the Developer ID G2 intermediate is missing). No secret material is shown.
           security find-identity -p codesigning "$RUNNER_TEMP/app-signing.keychain-db"
 
-      - name: Build, sign, and create DMG
+      - name: Build, sign, notarize, and create DMG
         env:
           SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
-        run: ./scripts/build-app.sh --sign "$SIGN_IDENTITY"
-
-      - name: Notarize DMG
-        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: |
-          DMG_PATH="build/BG3 Mac Mod Manager.dmg"
-          xcrun notarytool submit "$DMG_PATH" \
+          # Notarizes and staples the app, then the DMG that contains it.
+          ./scripts/build-app.sh --sign "$SIGN_IDENTITY" --notarize \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
-            --password "$NOTARY_PASSWORD" \
-            --wait
-          xcrun stapler staple "$DMG_PATH"
+            --password-env NOTARY_PASSWORD
 
       - name: Verify signature and notarization
         run: |
           # Shows the signing authority chain and secure timestamp.
           codesign -dvv "build/BG3 Mac Mod Manager.app"
+          xcrun stapler validate "build/BG3 Mac Mod Manager.app"
           xcrun stapler validate "build/BG3 Mac Mod Manager.dmg"
 
       - name: Upload DMG from manual run
