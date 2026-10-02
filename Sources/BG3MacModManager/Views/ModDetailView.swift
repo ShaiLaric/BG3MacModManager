@@ -144,7 +144,7 @@ struct ModDetailView: View {
                     Text("Uncategorized")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .help("No category detected from tags, name, or known-mods database. This mod will be sorted into the middle of the load order (with Content mods). Use the picker to assign a tier manually.")
+                        .help("No category detected from tags, name, or known-mods database. Smart Sort keeps this mod next to the categorized mod above it in your load order (or below it, if none is above). Use the picker to assign a tier manually.")
                 }
 
                 Spacer()

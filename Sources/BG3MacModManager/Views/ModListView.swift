@@ -478,7 +478,7 @@ struct ModListView: View {
                     .help("Find and activate all missing dependencies from the inactive mod list")
                     Divider()
                     Button("Smart Sort (Tier + Dependencies)") { appState.smartSort() }
-                        .help("Satisfy dependencies and persistent rules globally, then prefer the 5-tier community order. Uncategorized mods use the middle tier.")
+                        .help("Satisfy dependencies and persistent rules globally, then prefer the 5-tier community order. Uncategorized mods stay next to their nearest categorized neighbor.")
                     Button("Sort by Dependencies Only") { appState.autoSortByDependencies() }
                         .help("Sort using only declared mod dependencies (topological sort). Does not consider category tiers.")
                     Divider()

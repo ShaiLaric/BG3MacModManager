@@ -12,7 +12,8 @@ final class CategoryInferenceService {
     /// 1. User override (persisted)
     /// 2. Tag-based heuristics
     /// 3. Name-based heuristics
-    /// Returns nil if no category can be inferred (mod stays unsorted).
+    /// Returns nil if no category can be inferred. Smart Sort then keeps the mod
+    /// next to its nearest categorized neighbor (see `LoadOrderSolver.effectiveTiers`).
     func inferCategory(for mod: ModInfo) -> ModCategory? {
         if let override = userOverrides[ModIdentity.comparisonKey(mod.uuid)] {
             return override

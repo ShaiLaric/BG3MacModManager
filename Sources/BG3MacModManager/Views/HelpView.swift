@@ -332,6 +332,12 @@ struct HelpView: View {
             to clear a manual override.
             """)
 
+            helpText("""
+            Uncategorized mods stay where you put them relative to their neighbors: each one sorts \
+            with the tier of the nearest categorized mod above it in the current order (or below it, \
+            if nothing above is categorized). Dependencies and rules still take precedence.
+            """)
+
             helpHeading("Dependency Sort")
             helpText("""
             Use the overflow menu and choose \"Sort by Dependencies Only\" for a pure topological \

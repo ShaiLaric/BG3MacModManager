@@ -263,6 +263,9 @@ struct LoadOrderSolver {
         var inDegree = initialInDegree
         var remaining = Set(modsByUUID.keys)
         var ordered: [ModInfo] = []
+        let tiers = mode == .smart
+            ? Self.effectiveTiers(for: originalIndex.sorted { $0.value < $1.value }.compactMap { modsByUUID[$0.key] })
+            : [:]
 
         for position in 1...modsByUUID.count {
             let uuid: String
@@ -298,7 +301,7 @@ struct LoadOrderSolver {
                     isHigherPriority(
                         $0,
                         than: $1,
-                        modsByUUID: modsByUUID,
+                        tiers: tiers,
                         originalIndex: originalIndex,
                         mode: mode
                     )
@@ -339,16 +342,48 @@ struct LoadOrderSolver {
         return .ordered(ordered)
     }
 
+    /// Category tier used by smart sorting, keyed by comparison UUID.
+    ///
+    /// An uncategorized mod takes the tier of the nearest categorized mod above
+    /// it in the current order, or below it when nothing above is categorized,
+    /// so it moves with its neighbors instead of being pulled into a fixed tier.
+    /// Original-position tie-breaking then keeps it next to that neighbor.
+    static func effectiveTiers(for mods: [ModInfo]) -> [String: Int] {
+        var tiers: [String: Int] = [:]
+        var leadingUncategorized: [String] = []
+        var previousTier: Int?
+
+        for mod in mods {
+            let uuid = ModIdentity.comparisonKey(mod.uuid)
+            if let tier = mod.category?.rawValue {
+                tiers[uuid] = tier
+                for leading in leadingUncategorized { tiers[leading] = tier }
+                leadingUncategorized = []
+                previousTier = tier
+            } else if let previousTier {
+                tiers[uuid] = previousTier
+            } else {
+                leadingUncategorized.append(uuid)
+            }
+        }
+
+        // No categorized mods at all: every mod shares one tier, so original order decides.
+        for leading in leadingUncategorized {
+            tiers[leading] = ModCategory.contentExtension.rawValue
+        }
+        return tiers
+    }
+
     private func isHigherPriority(
         _ lhs: String,
         than rhs: String,
-        modsByUUID: [String: ModInfo],
+        tiers: [String: Int],
         originalIndex: [String: Int],
         mode: SortMode
     ) -> Bool {
         if mode == .smart {
-            let lhsTier = modsByUUID[lhs]?.category?.rawValue ?? 3
-            let rhsTier = modsByUUID[rhs]?.category?.rawValue ?? 3
+            let lhsTier = tiers[lhs] ?? ModCategory.contentExtension.rawValue
+            let rhsTier = tiers[rhs] ?? ModCategory.contentExtension.rawValue
             if lhsTier != rhsTier { return lhsTier < rhsTier }
         }
         let lhsIndex = originalIndex[lhs] ?? .max

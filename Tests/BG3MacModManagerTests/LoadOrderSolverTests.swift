@@ -160,6 +160,74 @@ final class LoadOrderSolverTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(start), 2.0)
     }
 
+    // MARK: - Uncategorized mods follow their neighbor
+
+    func testUncategorizedModStaysAfterPrecedingNeighbor() {
+        let mods = [
+            makeModInfo(uuid: "visual", name: "Visual", category: .visual),
+            makeModInfo(uuid: "unknown", name: "Unknown"),
+            makeModInfo(uuid: "framework", name: "Framework", category: .framework),
+        ]
+
+        XCTAssertEqual(
+            orderedUUIDs(solver.solve(mods: mods, mode: .smart)),
+            ["framework", "visual", "unknown"]
+        )
+    }
+
+    func testLeadingUncategorizedModFollowsNextCategorizedNeighbor() {
+        let mods = [
+            makeModInfo(uuid: "unknown", name: "Unknown"),
+            makeModInfo(uuid: "late", name: "Late", category: .lateLoader),
+            makeModInfo(uuid: "content", name: "Content", category: .contentExtension),
+        ]
+
+        XCTAssertEqual(
+            orderedUUIDs(solver.solve(mods: mods, mode: .smart)),
+            ["content", "unknown", "late"]
+        )
+    }
+
+    func testAllUncategorizedModsKeepTheirOrder() {
+        let mods = [
+            makeModInfo(uuid: "c", name: "C"),
+            makeModInfo(uuid: "a", name: "A"),
+            makeModInfo(uuid: "b", name: "B"),
+        ]
+
+        XCTAssertEqual(orderedUUIDs(solver.solve(mods: mods, mode: .smart)), ["c", "a", "b"])
+    }
+
+    func testDependencyOverridesInheritedTier() {
+        let mods = [
+            makeModInfo(uuid: "framework", name: "Framework", category: .framework),
+            makeModInfo(uuid: "unknown", name: "Unknown", dependencies: [makeDependency(uuid: "visual")]),
+            makeModInfo(uuid: "visual", name: "Visual", category: .visual),
+        ]
+
+        XCTAssertEqual(
+            orderedUUIDs(solver.solve(mods: mods, mode: .smart)),
+            ["framework", "visual", "unknown"]
+        )
+    }
+
+    func testEffectiveTiersCarryForwardThroughRunsOfUncategorizedMods() {
+        let tiers = LoadOrderSolver.effectiveTiers(for: [
+            makeModInfo(uuid: "lead", name: "Lead"),
+            makeModInfo(uuid: "gameplay", name: "Gameplay", category: .gameplay),
+            makeModInfo(uuid: "u1", name: "U1"),
+            makeModInfo(uuid: "u2", name: "U2"),
+            makeModInfo(uuid: "visual", name: "Visual", category: .visual),
+            makeModInfo(uuid: "u3", name: "U3"),
+        ])
+
+        XCTAssertEqual(tiers["lead"], ModCategory.gameplay.rawValue)
+        XCTAssertEqual(tiers["u1"], ModCategory.gameplay.rawValue)
+        XCTAssertEqual(tiers["u2"], ModCategory.gameplay.rawValue)
+        XCTAssertEqual(tiers["u3"], ModCategory.visual.rawValue)
+        XCTAssertEqual(tiers["visual"], ModCategory.visual.rawValue)
+    }
+
     private func orderedUUIDs(_ result: LoadOrderSolver.Result) -> [String] {
         guard case .ordered(let mods) = result else { return [] }
         return mods.map(\.uuid)
