@@ -141,29 +141,29 @@ final class AppState: ObservableObject {
 
     // MARK: - Services
 
-    let modSettingsService = ModSettingsService()
-    let discoveryService = ModDiscoveryService()
-    let profileService = ProfileService()
-    let backupService = BackupService()
+    var modSettingsService = ModSettingsService()
+    var discoveryService = ModDiscoveryService()
+    var profileService = ProfileService()
+    var backupService = BackupService()
     let seService = ScriptExtenderService()
     let launchService = GameLaunchService()
     let validationService = ModValidationService()
     let textExportService = TextExportService()
     let archiveService = ArchiveService()
-    let categoryService = CategoryInferenceService()
+    var categoryService = CategoryInferenceService()
     let loadOrderImportService = LoadOrderImportService()
-    let nexusURLService = NexusURLService()
-    let modNotesService = ModNotesService()
-    let nexusAPIService = NexusAPIService()
-    let nexusUpdatePreferenceService = NexusUpdatePreferenceService()
-    let loadOrderRuleService = LoadOrderRuleService()
+    var nexusURLService = NexusURLService()
+    var modNotesService = ModNotesService()
+    var nexusAPIService = NexusAPIService()
+    var nexusUpdatePreferenceService = NexusUpdatePreferenceService()
+    var loadOrderRuleService = LoadOrderRuleService()
     let loadOrderSolver = LoadOrderSolver()
     let launchReadinessService = LaunchReadinessService()
-    let saveGameScanner = SaveGameScanner()
-    let saveProfileAssociationService = SaveProfileAssociationService()
+    var saveGameScanner = SaveGameScanner()
+    var saveProfileAssociationService = SaveProfileAssociationService()
     let saveProfileComparator = SaveProfileComparator()
-    let modUpdateHistoryService = ModUpdateHistoryService()
-    let modUpdateService = ModUpdateService()
+    var modUpdateHistoryService = ModUpdateHistoryService()
+    var modUpdateService = ModUpdateService()
 
     // MARK: - Initialization
 
@@ -186,6 +186,60 @@ final class AppState: ObservableObject {
                nexusAPIService.apiKey != nil {
                 await checkForNexusUpdates()
             }
+        }
+    }
+
+    /// False while an operation that reads or writes the configured locations
+    /// is running. Changing a location then would rebuild the services out
+    /// from under it, so the Settings location controls are disabled.
+    var canChangeLocations: Bool {
+        !(isLoading || isImporting || isExporting || isUpdatingMod
+          || isCheckingForUpdates || isScanningSaveGames || isCheckingReadiness)
+    }
+
+    /// Rebuild services that capture a path at initialization, then reload all
+    /// disk-backed state after the user changes a configured location.
+    /// Callers must resolve unsaved load-order changes first; this discards them.
+    func reloadForPathChange() {
+        discoveryService = ModDiscoveryService()
+        profileService = ProfileService()
+        backupService = BackupService()
+        categoryService = CategoryInferenceService()
+        nexusURLService = NexusURLService()
+        modNotesService = ModNotesService()
+        nexusAPIService = NexusAPIService()
+        nexusUpdatePreferenceService = NexusUpdatePreferenceService()
+        loadOrderRuleService = LoadOrderRuleService()
+        saveGameScanner = SaveGameScanner()
+        saveProfileAssociationService = SaveProfileAssociationService()
+        modUpdateHistoryService = ModUpdateHistoryService()
+        modUpdateService = ModUpdateService()
+
+        activeMods = []
+        inactiveMods = []
+        profiles = []
+        backups = []
+        saveGames = []
+        saveProfileAssociations = []
+        loadOrderRules = []
+        modUpdateHistory = []
+        modUpdateProvenance = [:]
+        selectedModID = nil
+        selectedModIDs = []
+        selectedSaveID = nil
+        hasUnsavedChanges = false
+        undoStack = []
+        redoStack = []
+        readinessReport = nil
+        isGameInstalled = FileLocations.isGameInstalled
+
+        Task {
+            loadPersistedLoadOrderRules()
+            loadPersistedSaveProfileAssociations()
+            loadPersistedModUpdateHistory()
+            loadPersistedNexusUpdatePreferences()
+            await refreshAll()
+            checkForExternalModSettingsChange()
         }
     }
 
@@ -1822,18 +1876,26 @@ final class AppState: ObservableObject {
     /// Record a SHA-256 hash of the current modsettings.lsx after we write it.
     private func recordModSettingsHash() {
         guard let hash = hashOfModSettings() else { return }
+        let baseline = ModSettingsExportBaseline(hash: hash, path: FileLocations.modSettingsFile.path)
         try? FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
-        try? hash.write(to: FileLocations.lastExportHashFile, atomically: true, encoding: .utf8)
+        try? baseline.fileContents.write(to: FileLocations.lastExportHashFile, atomically: true, encoding: .utf8)
     }
 
     /// Compare the current modsettings.lsx against our last known export.
     /// If they differ, the game (or another tool) changed the file externally.
+    /// A baseline recorded for a different modsettings.lsx (another BG3 User
+    /// Data location) is ignored rather than reported as an external change.
     private func checkForExternalModSettingsChange() {
         guard FileLocations.modSettingsExists else { return }
-        guard let storedHash = try? String(contentsOf: FileLocations.lastExportHashFile, encoding: .utf8) else { return }
+        guard let contents = try? String(contentsOf: FileLocations.lastExportHashFile, encoding: .utf8),
+              let baseline = ModSettingsExportBaseline(fileContents: contents),
+              baseline.applies(
+                to: FileLocations.modSettingsFile.path,
+                legacyPath: FileLocations.defaultModSettingsFile.path
+              ) else { return }
         guard let currentHash = hashOfModSettings() else { return }
 
-        if storedHash != currentHash {
+        if baseline.hash != currentHash {
             showExternalChangeAlert = true
         }
     }

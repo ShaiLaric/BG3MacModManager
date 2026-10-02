@@ -603,7 +603,9 @@ struct HelpView: View {
             helpText("""
             The app tracks a hash of modsettings.lsx after each save. If the file is modified \
             externally (e.g., by the game resetting it), you are prompted on next launch to \
-            restore from your most recent backup.
+            restore from your most recent backup. The hash records which modsettings.lsx it \
+            came from, so pointing BG3 User Data at a different installation does not trigger \
+            this prompt; checking resumes after your first save there.
             """)
 
             helpHeading("File Locking")
@@ -948,10 +950,20 @@ struct HelpView: View {
 
             helpHeading("Paths")
             helpText("""
-            The Paths tab shows all detected file paths with green/red indicators showing \
-            whether each path exists. This is useful for diagnosing issues with game detection \
-            or missing files.
+            The Paths tab sets where the app looks for BG3 files and shows every resolved path \
+            with a green/red indicator for whether it exists. Use it after moving files to \
+            another drive, or to diagnose game detection and missing files.
             """)
+            helpBulletList([
+                "BG3 User Data — The ‘Baldur’s Gate 3’ folder containing Mods and PlayerProfiles. Default: ~/Documents/Larian Studios/Baldur's Gate 3.",
+                "Steam Apps — The Steam library’s steamapps folder, used to find the game. Default: ~/Library/Application Support/Steam/steamapps.",
+                "BG3MMM Data — The BG3MacModManager folder containing Profiles, Backups, notes, and other app data. Default: ~/Library/Application Support/BG3MacModManager.",
+                "Choose… — Pick a different folder. Reset — Return to the standard macOS location (shown only after you choose a folder).",
+                "Changing a location reloads mods, profiles, backups, and saves from the new folders. Nothing is copied, moved, or deleted; the app creates files there only as it normally would, for example when you save.",
+                "If the load order has unsaved changes, you are asked to save them first. Saving writes to the current modsettings.lsx before the switch.",
+                "Choose… and Reset are unavailable while an import, export, mod update, update check, save scan, or readiness check is running.",
+                "Resolved Paths — The Mods folder, modsettings.lsx, game app, and Script Extender dylib derived from these locations. A red mark here usually means a chosen folder is not the right one.",
+            ])
 
             helpHeading("Script Extender")
             helpText("""

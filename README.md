@@ -121,6 +121,14 @@ The app works with these standard BG3 paths on macOS:
 | App profiles | `~/Library/Application Support/BG3MacModManager/Profiles/` |
 | App backups | `~/Library/Application Support/BG3MacModManager/Backups/` |
 
+If a drive migration moves any of these folders, open **Settings → Paths** and choose the
+new **BG3 User Data** folder (the folder containing `Mods` and `PlayerProfiles`), the Steam
+library’s `steamapps` folder, or the `BG3MacModManager` data folder containing `Profiles` and
+`Backups`. Select **Reset** beside a location to return to the standard macOS path. Changing a
+location reloads the app’s on-disk state from the new folders. Nothing is copied, moved, or
+deleted; the app writes there only as it normally would, such as when you save. If the load order
+has unsaved changes, you are asked to save them to the current location first.
+
 ## Project Structure
 
 ```

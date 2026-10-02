@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import AppKit
 
 /// App settings view (shown in Preferences window).
 struct SettingsView: View {
@@ -11,6 +12,9 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.autoSaveBeforeLaunch) var autoSaveBeforeLaunch = false
     @AppStorage(AppPreferenceKey.autoSaveOnProfileLoad) var autoSaveOnProfileLoad = false
     @AppStorage(AppPreferenceKey.autoCheckNexusUpdates) var autoCheckNexusUpdates = false
+    @AppStorage(AppPreferenceKey.larianDocumentsPath) private var larianDocumentsPath = ""
+    @AppStorage(AppPreferenceKey.steamAppsPath) private var steamAppsPath = ""
+    @AppStorage(AppPreferenceKey.appSupportDirectoryPath) private var appSupportDirectoryPath = ""
     @State private var nexusAPIKey = ""
     @State private var nexusCredentialError: String?
     private let nexusCredentialStore = NexusCredentialStore()
@@ -26,7 +30,7 @@ struct SettingsView: View {
             seSettings
                 .tabItem { Label("Script Extender", systemImage: "terminal") }
         }
-        .frame(width: 500, height: 420)
+        .frame(width: 560, height: 520)
         .padding()
     }
 
@@ -135,7 +139,37 @@ struct SettingsView: View {
 
     private var pathSettings: some View {
         Form {
-            Section("Detected Paths") {
+            Section("Locations") {
+                configurablePathRow(
+                    "BG3 User Data",
+                    FileLocations.larianDocuments,
+                    exists: FileManager.default.fileExists(atPath: FileLocations.larianDocuments.path),
+                    buttonTitle: "Choose…",
+                    help: "Choose the ‘Baldur’s Gate 3’ folder that contains Mods and PlayerProfiles.",
+                    choose: chooseLarianDocuments,
+                    reset: larianDocumentsPath.isEmpty ? nil : { changeLocation { larianDocumentsPath = "" } }
+                )
+                configurablePathRow(
+                    "Steam Apps",
+                    FileLocations.steamApps,
+                    exists: FileManager.default.fileExists(atPath: FileLocations.steamApps.path),
+                    buttonTitle: "Choose…",
+                    help: "Choose the Steam library’s steamapps folder.",
+                    choose: chooseSteamApps,
+                    reset: steamAppsPath.isEmpty ? nil : { changeLocation { steamAppsPath = "" } }
+                )
+                configurablePathRow(
+                    "BG3MMM Data",
+                    FileLocations.appSupportDirectory,
+                    exists: FileManager.default.fileExists(atPath: FileLocations.appSupportDirectory.path),
+                    buttonTitle: "Choose…",
+                    help: "Choose the BG3MacModManager folder containing Profiles and Backups.",
+                    choose: chooseAppSupportDirectory,
+                    reset: appSupportDirectoryPath.isEmpty ? nil : { changeLocation { appSupportDirectoryPath = "" } }
+                )
+            }
+
+            Section("Resolved Paths") {
                 pathRow("Mods Folder", FileLocations.modsFolder, exists: FileLocations.modsFolderExists)
                 pathRow("modsettings.lsx", FileLocations.modSettingsFile, exists: FileLocations.modSettingsExists)
                 pathRow("Game App", FileLocations.gameApp, exists: FileLocations.isGameInstalled)
@@ -164,6 +198,140 @@ struct SettingsView: View {
             Image(systemName: exists ? "checkmark.circle.fill" : "xmark.circle")
                 .foregroundStyle(exists ? .green : .red)
                 .help(exists ? "Found at this path" : "Not found at this path")
+        }
+    }
+
+    private func configurablePathRow(
+        _ label: String,
+        _ url: URL,
+        exists: Bool,
+        buttonTitle: String,
+        help: String,
+        choose: @escaping () -> Void,
+        reset: (() -> Void)?
+    ) -> some View {
+        let canChange = appState.canChangeLocations
+        let busyHelp = "Wait for the current operation to finish before changing locations."
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(label)
+                Spacer()
+                Image(systemName: exists ? "checkmark.circle.fill" : "xmark.circle")
+                    .foregroundStyle(exists ? .green : .red)
+                Button(buttonTitle, action: choose)
+                    .disabled(!canChange)
+                    .help(canChange ? help : busyHelp)
+                if let reset {
+                    Button("Reset", action: reset)
+                        .disabled(!canChange)
+                        .help(canChange ? "Return to the standard macOS location." : busyHelp)
+                }
+            }
+            Text(url.path)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+        .help(help)
+    }
+
+    private func chooseLarianDocuments() {
+        chooseDirectory(
+            title: "Choose BG3 User Data Folder",
+            message: "Choose the ‘Baldur’s Gate 3’ folder containing Mods and PlayerProfiles.",
+            current: FileLocations.larianDocuments
+        ) { larianDocumentsPath = $0.path }
+    }
+
+    private func chooseSteamApps() {
+        chooseDirectory(
+            title: "Choose Steam Apps Folder",
+            message: "Choose the Steam library’s steamapps folder.",
+            current: FileLocations.steamApps
+        ) { steamAppsPath = $0.path }
+    }
+
+    private func chooseAppSupportDirectory() {
+        chooseDirectory(
+            title: "Choose BG3MMM Data Folder",
+            message: "Choose the BG3MacModManager folder containing Profiles and Backups.",
+            current: FileLocations.appSupportDirectory
+        ) { appSupportDirectoryPath = $0.path }
+    }
+
+    private func chooseDirectory(
+        title: String,
+        message: String,
+        current: URL,
+        apply: @escaping (URL) -> Void
+    ) {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.message = message
+        panel.directoryURL = current
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+
+        guard panel.runModal() == .OK, let selected = panel.url else { return }
+        let selectedURL = selected.standardizedFileURL
+        changeLocation { apply(selectedURL) }
+    }
+
+    /// Resolve unsaved load-order changes, then apply a location change and
+    /// reload. Saving happens before `apply`, so changes are written to the
+    /// modsettings.lsx they came from rather than the newly chosen location.
+    private func changeLocation(_ apply: @escaping () -> Void) {
+        guard appState.canChangeLocations else { return }
+
+        guard appState.hasUnsavedChanges else {
+            apply()
+            appState.reloadForPathChange()
+            return
+        }
+
+        switch confirmUnsavedChangesBeforeLocationChange() {
+        case .save:
+            Task { @MainActor in
+                guard await appState.performSave() else { return }
+                apply()
+                appState.reloadForPathChange()
+            }
+        case .dontSave:
+            apply()
+            appState.reloadForPathChange()
+        case .cancel:
+            return
+        }
+    }
+
+    private enum LocationChangeResponse {
+        case save, dontSave, cancel
+    }
+
+    private func confirmUnsavedChangesBeforeLocationChange() -> LocationChangeResponse {
+        let alert = NSAlert()
+        alert.messageText = "You have unsaved changes"
+        alert.informativeText = """
+            Do you want to save your mod load order before changing locations? \
+            Saving writes it to the current modsettings.lsx; changing locations \
+            without saving discards it.
+            """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[1].keyEquivalent = "d"
+        alert.buttons[1].keyEquivalentModifierMask = [.command]
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .save
+        case .alertSecondButtonReturn:
+            return .dontSave
+        default:
+            return .cancel
         }
     }
 

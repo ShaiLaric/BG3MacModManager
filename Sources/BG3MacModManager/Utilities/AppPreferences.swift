@@ -9,6 +9,12 @@ enum AppPreferenceKey {
     static let autoSaveBeforeLaunch = "autoSaveBeforeLaunch"
     static let autoSaveOnProfileLoad = "autoSaveOnProfileLoad"
     static let autoCheckNexusUpdates = "autoCheckNexusUpdates"
+
+    /// Optional overrides for installations moved outside the standard macOS
+    /// locations. Empty values deliberately mean “use the macOS default”.
+    static let larianDocumentsPath = "larianDocumentsPath"
+    static let steamAppsPath = "steamAppsPath"
+    static let appSupportDirectoryPath = "appSupportDirectoryPath"
 }
 
 struct SavePreferences {

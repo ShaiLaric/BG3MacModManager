@@ -5,11 +5,29 @@ import Foundation
 /// Central registry of all BG3-related file paths on macOS.
 enum FileLocations {
 
+    private static func configuredDirectory(
+        preferenceKey: String,
+        default defaultURL: @autoclosure () -> URL
+    ) -> URL {
+        guard let path = UserDefaults.standard.string(forKey: preferenceKey),
+              !path.isEmpty else {
+            return defaultURL().standardizedFileURL
+        }
+        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    }
+
     // MARK: - Larian Documents Root
 
-    static var larianDocuments: URL {
+    static var defaultLarianDocuments: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Documents/Larian Studios/Baldur's Gate 3")
+    }
+
+    static var larianDocuments: URL {
+        configuredDirectory(
+            preferenceKey: AppPreferenceKey.larianDocumentsPath,
+            default: defaultLarianDocuments
+        )
     }
 
     // MARK: - Mods
@@ -31,6 +49,14 @@ enum FileLocations {
         publicProfile.appendingPathComponent("modsettings.lsx")
     }
 
+    /// modsettings.lsx under the default BG3 User Data folder, ignoring any
+    /// override. Export fingerprints recorded before locations became
+    /// configurable always refer to this file.
+    static var defaultModSettingsFile: URL {
+        defaultLarianDocuments.standardizedFileURL
+            .appendingPathComponent("PlayerProfiles/Public/modsettings.lsx")
+    }
+
     /// `~/Documents/Larian Studios/Baldur's Gate 3/PlayerProfiles/Public/Savegames/Story/`
     static var savegamesFolder: URL {
         publicProfile.appendingPathComponent("Savegames/Story")
@@ -44,9 +70,16 @@ enum FileLocations {
 
     // MARK: - Game Installation (Steam)
 
-    static var steamApps: URL {
+    static var defaultSteamApps: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Steam/steamapps")
+    }
+
+    static var steamApps: URL {
+        configuredDirectory(
+            preferenceKey: AppPreferenceKey.steamAppsPath,
+            default: defaultSteamApps
+        )
     }
 
     /// `~/Library/Application Support/Steam/steamapps/common/Baldurs Gate 3/`
@@ -92,9 +125,16 @@ enum FileLocations {
 
     // MARK: - App Data
 
-    static var appSupportDirectory: URL {
+    static var defaultAppSupportDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("BG3MacModManager")
+    }
+
+    static var appSupportDirectory: URL {
+        configuredDirectory(
+            preferenceKey: AppPreferenceKey.appSupportDirectoryPath,
+            default: defaultAppSupportDirectory
+        )
     }
 
     static var backupsDirectory: URL {

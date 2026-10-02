@@ -31,6 +31,8 @@ Tests/BG3MacModManagerTests/
   ModNotesServiceTests.swift          - Per-mod notes persistence
   NexusURLImportServiceTests.swift    - CSV/JSON/TXT import parsing, mod matching
   NexusAPIServiceTests.swift          - Mod ID extraction, update result logic, cache encoding
+  LocationSettingsTests.swift         - Configurable path overrides, location-change busy gating
+  ModSettingsExportBaselineTests.swift - External-change hash baseline parsing and per-path matching
 ```
 
 ## Key Patterns
@@ -43,6 +45,7 @@ Tests/BG3MacModManagerTests/
 - **State**: Single `AppState` (ObservableObject) passed via `.environmentObject()`
 - **Async**: Use `Task { await ... }` in button actions for async AppState methods
 - **Design tokens**: All semantic colors and spacing constants are defined in `DesignTokens.swift` — use these instead of inline opacity/color values. Severity colors are accessed via `ModWarning.Severity.color` and `.backgroundColor`
+- **File locations**: Always resolve paths through `FileLocations`; BG3 User Data, Steam Apps, and app data can be overridden in Settings → Paths. A service that captures a path at init must also be rebuilt in `AppState.reloadForPathChange()`, and location changes must go through SettingsView's `changeLocation` so unsaved changes are resolved and busy operations block the switch
 - **Animations**: Use `.spring(response: 0.3, dampingFraction: 0.8)` for list changes; `.easeInOut(duration: 0.2)` for transitions. Use `if #available(macOS 14, *)` guard for `.symbolEffect`
 
 ## Workflow
