@@ -23,3 +23,6 @@ DerivedData/
 .DS_Store
 *.swp
 *~.nib
+
+# Internal review reports (not published)
+/docs/reports/
