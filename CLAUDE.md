@@ -72,6 +72,23 @@ Tests/BG3MacModManagerTests/
 
 Prioritized feature and UX improvements organized by tier. Each item includes a scope tag (S/M/L) and the key files that need changes.
 
+### Next session: prioritized backlog
+
+Baseline: version 1.5.1, build 5 is signed, notarized, stapled, and installed in ~/Applications. The safety review and import health report are complete; 364 tests and GitHub CI pass. The following items remain open, in recommended order.
+
+| Priority | Work | Scope | Done when |
+|---|---|---|---|
+| 1 | Safe ZIP export replacement | S | Create the archive in staging, replace an existing export only after success, preserve the previous ZIP on failure, and clean partial files. Cover overwrite and failure paths. Current createZip writes directly to the requested destination. |
+| 2 | Diagnostics bundle export (4.2) | S–M | Export mod list, load order, validation findings, app/version information, and a bounded optional SE log. Preview included data, exclude credentials, and verify archive contents. Build on the safe ZIP export path. |
+| 3 | Import duplicate/version decisions (remaining 4.5) | M | Before replacing an installed PAK, show installed/candidate identity and version and offer replace, keep both where safe, or cancel. Handle multiple dropped files in one queue and preserve rollback copies. Finder drag-and-drop intake itself already exists. |
+| 4 | Named operation history (3.1) | M–L | Show session entries such as activation, profile load, and sorting; revert to a selected load-order snapshot. Distinguish load-order undo from installed-file rollback. |
+| 5 | Activation sets (4.7) | L | Create/edit/delete named UUID sets, apply a set as one undoable operation, preserve required game modules, and report missing mods. Persist sets safely. |
+| 6 | File-level conflict detection (4.6) | M–L | List overlapping paths across active PAKs, group by mod pair, and explain precedence where BG3's behavior is established. Start with overlap detection; defer content diffing. |
+| 7 | Recovery usability | M | Provide a guided restore for durable import copies and an explicit recovery/reset flow for unreadable notes, URLs, and categories. Preserve original bytes and make consequences clear. Current imports retain copies; unreadable stores block edits. |
+| 8 | AppState workflow separation | M–L | Extract import/recovery/update coordination from AppState while preserving injected services, operation ownership, stale-result protection, and existing test coverage. |
+
+External validation followup: retry native automated button checks for the import report once the SkyComputerUseService sheet-reading crash is fixed. The report's layout and expected findings were confirmed in the user's screenshot; restarting and reauthorizing the automation helper did not resolve its internal crash. Do not repeatedly reset macOS permissions as a substitute for diagnosing that helper.
+
 ### Tier 1: Quick Wins
 
 | # | Title | Scope | Status | Description | Key Files |
@@ -108,7 +125,7 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 | 3.2 | Nexus Mods Update Detection | L | **Done** | Query Nexus API to compare installed vs. latest versions; show "Update Available" badges. Requires API key in Settings. | `NexusAPIService.swift`, `NexusUpdateInfo.swift`, `SettingsView.swift`, `ModRowView.swift`, `ModDetailView.swift`, `ModListView.swift`, `ContentView.swift`, `AppState.swift` |
 | 3.3 | Mod Groups / Collections | L | **Superseded by 4.7** | User-defined named groups orthogonal to categories. Activate/deactivate/view entire groups. | New `ModGroup.swift`, new `ModGroupService.swift`, multiple views |
 | 3.4 | Conflict Resolution Advisor | L | **Superseded by 4.6** | Analyze conflict graph and suggest compatibility patches, load order adjustments, and Nexus search links. | New `ConflictAdvisorService.swift`, `ModListView.swift`, `ModDetailView.swift` |
-| 3.5 | Comprehensive Test Suite | L | **Done** | ~150 tests across 11 test files + 1 helper: `ModInfoTests`, `DataBinaryReadingTests`, `ModCategoryTests`, `TextExportServiceTests`, `CategoryInferenceServiceTests`, `ModValidationServiceTests`, `LoadOrderImportServiceTests`, `PakReaderTests`, `ModNotesServiceTests`, `NexusURLImportServiceTests`, `NexusAPIServiceTests`. | `TestHelpers.swift`, multiple test files in `Tests/` |
+| 3.5 | Comprehensive Test Suite | L | **Done** | 364 tests as of build 5, covering models, parsing, filesystem transactions, recovery, sorting, import health, and asynchronous state. Nexus tests use injected credentials and mocked HTTP. | `TestHelpers.swift`, multiple test files in `Tests/` |
 | 3.6 | Per-Mod User Notes | M–L | **Done** | Editable notes per mod stored in app support JSON, editable from detail panel, icon indicator in row. | `ModNotesService.swift`, `ModDetailView.swift`, `ModRowView.swift`, `ModListView.swift`, `AppState.swift` |
 | 3.7 | Bulk Nexus URL Import | M–L | **Done** | Import CSV/TSV/JSON/TXT files to bulk-populate Nexus URLs. Matches by UUID, exact name, or fuzzy name. | `NexusURLImportService.swift`, `NexusURLImportView.swift`, `NexusURLService.swift`, `ContentView.swift`, `AppState.swift` |
 
@@ -118,9 +135,9 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 |---|-------|-------|--------|-------------|-----------|
 | 4.1 | Dependency Auto-Sort Mode | S–M | **Done** | One-click "safe reorder" using existing dependency graph (topological sort) plus category heuristics. Wraps existing `ModValidationService` logic into a single user action. | `AppState.swift`, `ModValidationService.swift`, `ModListView.swift` |
 | 4.2 | Diagnostics Bundle Export | S | | One-click package of mod list, settings, warnings, validation results, and logs into a ZIP for bug reports/support. Extends existing `TextExportService` and uses `ZIPFoundation`. | New `DiagnosticsExportService.swift`, `TextExportService.swift`, `ContentView.swift` |
-| 4.3 | Import Health Report | S–M | **Done** | After ZIP/PAK import, show missing dependencies, duplicates, SE requirements, and suggested fixes. Surfaces existing `ModValidationService` checks at import time. Reuses `ImportSummaryView` patterns. | `AppState.swift`, `ModValidationService.swift`, `ImportSummaryView.swift` |
+| 4.3 | Import Health Report | S–M | **Done** | After ZIP/PAK import, show missing dependencies, duplicates, SE requirements, and suggested fixes. Surfaces existing `ModValidationService` checks at import time. Uses a dedicated report with activation and tool followups. | `AppState.swift`, `ModValidationService.swift`, `ImportHealthService.swift`, `ImportHealthView.swift` |
 | 4.4 | Mod Update Dashboard | M | **Done** | Nexus version dashboard, per-version ignore and per-mod disable controls, browser acquisition, transactional archive installation, durable history, and rollback. | `NexusAPIService.swift`, `NexusUpdateInfo.swift`, `NexusUpdatePreferenceService.swift`, `ModUpdatesView.swift`, `AppState.swift`, `SettingsView.swift` |
-| 4.5 | Drag-Drop Archive Intake | M | | Drop ZIP/PAK anywhere in app to queue import with duplicate/version resolution. Uses SwiftUI `.onDrop` and existing import pipeline. | `ContentView.swift`, `AppState.swift`, `ArchiveService.swift`, `ModDiscoveryService.swift` |
+| 4.5 | Drag-Drop Archive Intake | M | **Partial** | Finder drop intake and post-import health reporting exist. Remaining: pre-install duplicate/version decisions and queued multi-file review. | `ContentView.swift`, `AppState.swift`, `ArchiveService.swift`, `ModDiscoveryService.swift` |
 | 4.6 | Conflict Detector with File-Level Diff | M–L | | Inspect overlapping files across `.pak` mods and show which mod wins by load order. Extends existing `PakReader` to enumerate and cross-reference file listings. Start with file-level overlap detection before content diffing. Subsumes/extends 3.4. | `PakReader.swift`, new `ConflictDetectorService.swift`, `ModListView.swift`, `ModDetailView.swift` |
 | 4.7 | Rules-Based Activation Sets | L | | Define named groups (e.g., "Vanilla+QoL", "Multiplayer-safe") and toggle entire sets in one action. Subsumes/extends 3.3. | New `ModGroup.swift`, new `ModGroupService.swift`, `ContentView.swift`, multiple views |
 
@@ -192,8 +209,8 @@ Items marked ~~strikethrough~~ are complete.
 8. ~~**2.4 → 2.6** — PAK Inspector, advanced filters~~
 9. ~~**3.5** — Test suite (pays dividends before larger features)~~
 10. ~~**3.6 → 3.7 → 3.2** — Per-mod notes, bulk Nexus import, update detection~~
-11. **4.1 → 4.3 → 4.2** — Dependency auto-sort, import health report, diagnostics export (core workflow value first)
-12. **4.4 → 4.5** — Update dashboard, drag-drop intake (medium effort, extends existing features)
+11. ~~**4.1 → 4.3**~~ → **4.2** — Dependency auto-sort and import health are complete; diagnostics export remains
+12. ~~**4.4**~~ → **4.5** — Update dashboard is complete; import duplicate/version decisions remain
 13. **4.7 → 3.1 → 4.6** — Activation sets (subsumes 3.3), history panel, conflict detector (subsumes 3.4)
 
 ### October 2026 safety review — Done
