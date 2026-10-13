@@ -10,6 +10,7 @@ struct BG3MacModManagerApp: App {
     @StateObject private var appState = AppState()
 
     init() {
+        NexusCredentialStore().migrateLegacyValueIfNeeded()
         // SPM executables launch as background processes by default.
         // This makes the app appear in the Dock and show its window.
         NSApplication.shared.setActivationPolicy(.regular)

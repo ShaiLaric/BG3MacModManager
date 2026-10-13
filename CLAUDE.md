@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current release: **v1.4.0**.
+BG3 Mac Mod Manager is a macOS SwiftUI application for managing Baldur's Gate 3 mods. It uses Swift Package Manager (SPM) with swift-tools-version 5.9, targeting macOS 13+. Current app version: **v1.5.1**.
 
 ## Build Environment
 
@@ -116,7 +116,7 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 
 | # | Title | Scope | Status | Description | Key Files |
 |---|-------|-------|--------|-------------|-----------|
-| 4.1 | Dependency Auto-Sort Mode | S–M | | One-click "safe reorder" using existing dependency graph (topological sort) plus category heuristics. Wraps existing `ModValidationService` logic into a single user action. | `AppState.swift`, `ModValidationService.swift`, `ModListView.swift` |
+| 4.1 | Dependency Auto-Sort Mode | S–M | **Done** | One-click "safe reorder" using existing dependency graph (topological sort) plus category heuristics. Wraps existing `ModValidationService` logic into a single user action. | `AppState.swift`, `ModValidationService.swift`, `ModListView.swift` |
 | 4.2 | Diagnostics Bundle Export | S | | One-click package of mod list, settings, warnings, validation results, and logs into a ZIP for bug reports/support. Extends existing `TextExportService` and uses `ZIPFoundation`. | New `DiagnosticsExportService.swift`, `TextExportService.swift`, `ContentView.swift` |
 | 4.3 | Import Health Report | S–M | | After ZIP/PAK import, show missing dependencies, duplicates, SE requirements, and suggested fixes. Surfaces existing `ModValidationService` checks at import time. Reuses `ImportSummaryView` patterns. | `AppState.swift`, `ModValidationService.swift`, `ImportSummaryView.swift` |
 | 4.4 | Mod Update Dashboard | M | **Done** | Nexus version dashboard, per-version ignore and per-mod disable controls, browser acquisition, transactional archive installation, durable history, and rollback. | `NexusAPIService.swift`, `NexusUpdateInfo.swift`, `NexusUpdatePreferenceService.swift`, `ModUpdatesView.swift`, `AppState.swift`, `SettingsView.swift` |
@@ -195,3 +195,15 @@ Items marked ~~strikethrough~~ are complete.
 11. **4.1 → 4.3 → 4.2** — Dependency auto-sort, import health report, diagnostics export (core workflow value first)
 12. **4.4 → 4.5** — Update dashboard, drag-drop intake (medium effort, extends existing features)
 13. **4.7 → 3.1 → 4.6** — Activation sets (subsumes 3.3), history panel, conflict detector (subsumes 3.4)
+
+### October 2026 safety review — Done
+
+- Backup copies clear inherited immutable flags; deleting legacy backups unlocks only the backup.
+- Retention uses backup timestamps, filenames are unique, and recovery stores the exact last successful export with its path and hash.
+- Ordinary imports validate PAKs and keep durable originals in ImportBackups. Replacements, companion deletions, verification, and update history participate in rollback; new history fingerprints recovery copies.
+- Unreadable notes, URLs, categories, and versioned documents cannot be silently overwritten.
+- Tar extraction uses macOS libarchive with streamed byte/entry limits, matching ZIP limits; LSF references are bounded by the parsed node count.
+- Pinned sorting searches feasible alternatives with a bounded search; Windows CSV line endings and stale asynchronous scans are handled.
+- Settings shows recovery storage usage and explicit cleanup controls; backup rows reveal exact files; Script Extender logs read a bounded tail off the main actor.
+- Nexus credential migration occurs at app startup only when a legacy plaintext value exists. Unit tests inject credentials and mock network responses, with no Keychain access.
+- Local validation: 352 tests pass and strict concurrency builds without warnings. Existing Swift build caches are reused because disk space is limited.

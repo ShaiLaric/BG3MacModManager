@@ -3,7 +3,24 @@
 import Foundation
 import Security
 
-struct NexusCredentialStore: Sendable {
+protocol NexusCredentialStoring: Sendable {
+    func apiKey() -> String?
+    func setAPIKey(_ value: String?) throws
+}
+
+extension NexusCredentialStoring {
+    /// Migration is an app-startup operation, never a service-construction side effect.
+    func migrateLegacyValueIfNeeded(defaults: UserDefaults = .standard) {
+        let legacyKey = "nexusAPIKey"
+        guard let legacyValue = defaults.string(forKey: legacyKey),
+              !legacyValue.isEmpty else { return }
+        if apiKey() != nil || (try? setAPIKey(legacyValue)) != nil {
+            defaults.removeObject(forKey: legacyKey)
+        }
+    }
+}
+
+struct NexusCredentialStore: NexusCredentialStoring {
     enum CredentialError: Error, LocalizedError {
         case keychain(OSStatus)
 
@@ -60,20 +77,6 @@ struct NexusCredentialStore: Sendable {
         let addStatus = SecItemAdd(item as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw CredentialError.keychain(addStatus)
-        }
-    }
-
-    /// Moves API keys saved by older releases out of plaintext UserDefaults.
-    func migrateLegacyValueIfNeeded(defaults: UserDefaults = .standard) {
-        let legacyKey = "nexusAPIKey"
-        guard apiKey() == nil,
-              let legacyValue = defaults.string(forKey: legacyKey),
-              !legacyValue.isEmpty else {
-            defaults.removeObject(forKey: legacyKey)
-            return
-        }
-        if (try? setAPIKey(legacyValue)) != nil {
-            defaults.removeObject(forKey: legacyKey)
         }
     }
 

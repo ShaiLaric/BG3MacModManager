@@ -46,20 +46,19 @@ final class ScriptExtenderService {
 
     /// Read the latest SE log file contents.
     func readLatestLog(maxBytes: Int = 100_000) -> String? {
-        let logPath = FileLocations.seLatestLog
-        guard FileManager.default.fileExists(atPath: logPath.path),
-              let data = try? Data(contentsOf: logPath) else {
-            return nil
-        }
+        Self.readLogTail(at: FileLocations.seLatestLog, maxBytes: maxBytes)
+    }
 
-        let readData: Data
-        if data.count > maxBytes {
-            readData = data[(data.count - maxBytes)...]
-        } else {
-            readData = data
-        }
-
-        return String(data: readData, encoding: .utf8)
+    static func readLogTail(at url: URL, maxBytes: Int) -> String? {
+        guard maxBytes > 0, let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        do {
+            let size = try handle.seekToEnd()
+            try handle.seek(toOffset: size > UInt64(maxBytes) ? size - UInt64(maxBytes) : 0)
+            let data = try handle.read(upToCount: maxBytes) ?? Data()
+            // A tail can start inside a multibyte character; retain the rest of the log.
+            return String(decoding: data, as: UTF8.self)
+        } catch { return nil }
     }
 
     /// Check if a specific mod requires the Script Extender.

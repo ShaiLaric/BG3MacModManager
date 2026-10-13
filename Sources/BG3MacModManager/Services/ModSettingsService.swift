@@ -117,6 +117,11 @@ struct ModSettingsService: Sendable {
 
     /// Write mod settings using a list of active ModInfo objects (in load order).
     func write(activeMods: [ModInfo]) throws {
+        try FileLocations.ensureDirectoryExists(FileLocations.modSettingsFile.deletingLastPathComponent())
+        try data(activeMods: activeMods).write(to: FileLocations.modSettingsFile, options: .atomic)
+    }
+
+    func data(activeMods: [ModInfo]) -> Data {
         var settings = ModSettings(modOrder: [], mods: [:])
 
         // Ensure base game module (GustavX) is always first
@@ -142,7 +147,7 @@ struct ModSettingsService: Sendable {
             )
         }
 
-        try write(settings)
+        return Data(generateXML(settings).utf8)
     }
 
     // MARK: - XML Generation

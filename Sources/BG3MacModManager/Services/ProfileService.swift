@@ -113,7 +113,7 @@ final class ProfileService {
         try FileLocations.ensureDirectoryExists(profilesDirectory)
         try data.write(to: newURL, options: .atomic)
 
-        if oldURL.standardizedFileURL != newURL.standardizedFileURL,
+        if !TransactionalFileService.identifiesSameFile(oldURL, newURL),
            FileManager.default.fileExists(atPath: oldURL.path) {
             do {
                 try FileManager.default.removeItem(at: oldURL)

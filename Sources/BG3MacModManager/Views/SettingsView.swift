@@ -15,6 +15,11 @@ struct SettingsView: View {
     @AppStorage(AppPreferenceKey.larianDocumentsPath) private var larianDocumentsPath = ""
     @AppStorage(AppPreferenceKey.steamAppsPath) private var steamAppsPath = ""
     @AppStorage(AppPreferenceKey.appSupportDirectoryPath) private var appSupportDirectoryPath = ""
+    @State private var storageUsage: BackupStorageService.Usage?
+    @State private var storageError: String?
+    @State private var showingStorageCleanup = false
+    @State private var recoveryRetentionDays = 30
+    @State private var isCleaningStorage = false
     @State private var nexusAPIKey = ""
     @State private var nexusCredentialError: String?
     private let nexusCredentialStore = NexusCredentialStore()
@@ -183,10 +188,70 @@ struct SettingsView: View {
             }
 
             Section("App Data") {
+                storageControls
                 pathRow("Profiles", FileLocations.profilesDirectory, exists: true)
                 pathRow("Backups", FileLocations.backupsDirectory, exists: true)
             }
         }
+    }
+
+    private var storageControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let storageUsage {
+                Text("Recovery storage: " + ByteCountFormatter.string(fromByteCount: storageUsage.totalBytes, countStyle: .file))
+                Text("Settings: \(formattedBytes(storageUsage.settingsBytes)) · Updates: \(formattedBytes(storageUsage.updateBytes)) · Imports: \(formattedBytes(storageUsage.importBytes))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let storageError { Text(storageError).font(.caption).foregroundStyle(.red) }
+            Picker("Clean recovery copies older than", selection: $recoveryRetentionDays) {
+                Text("30 days").tag(30)
+                Text("90 days").tag(90)
+                Text("180 days").tag(180)
+            }
+            .help("Choose the age threshold for explicit recovery-copy cleanup")
+            HStack {
+                Button("Show Import Copies") {
+                    NSWorkspace.shared.open(FileLocations.appSupportDirectory.appendingPathComponent("ImportBackups"))
+                }
+                .help("Open durable import backups in Finder")
+                Button("Show Update Copies") {
+                    NSWorkspace.shared.open(FileLocations.modUpdateBackupsDirectory)
+                }
+                .help("Open previous mod versions in Finder")
+            }
+            Button("Clean Recovery Storage…") { showingStorageCleanup = true }
+                .help("Remove expired recovery copies while retaining active update backups")
+                .disabled(!appState.canChangeLocations || isCleaningStorage)
+            Text("Cleanup removes expired import copies, restored update copies, and unused update backups. Backups for updates still installed are kept.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .task(id: appSupportDirectoryPath) { await refreshStorageUsage() }
+        .confirmationDialog("Clean recovery copies older than \(recoveryRetentionDays) days?", isPresented: $showingStorageCleanup) {
+            Button("Clean Recovery Storage", role: .destructive) {
+                Task {
+                    isCleaningStorage = true
+                    await appState.cleanRecoveryStorage(olderThanDays: recoveryRetentionDays)
+                    await refreshStorageUsage()
+                    isCleaningStorage = false
+                }
+            }
+        } message: {
+            Text("Expired recovery copies will be permanently removed. Active update backups and modsettings backups are kept.")
+        }
+    }
+
+    private func formattedBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private func refreshStorageUsage() async {
+        let directory = FileLocations.appSupportDirectory
+        do {
+            let usage = try await Task.detached { try BackupStorageService(appSupportDirectory: directory).usage() }.value
+            guard directory == FileLocations.appSupportDirectory else { return }
+            storageUsage = usage
+            storageError = nil
+        } catch { storageError = error.localizedDescription }
     }
 
     private func pathRow(_ label: String, _ url: URL, exists: Bool) -> some View {

@@ -25,6 +25,8 @@ struct ModUpdatePlan: Identifiable, Sendable {
 struct ModUpdateBackupItem: Codable, Equatable, Sendable {
     let originalPath: String
     let backupRelativePath: String
+    /// Optional for history written before integrity fingerprints were recorded.
+    var sha256: String? = nil
 }
 
 struct ModUpdateHistoryRecord: Identifiable, Codable, Equatable, Sendable {

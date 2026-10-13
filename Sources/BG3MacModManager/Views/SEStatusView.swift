@@ -154,8 +154,13 @@ struct SEStatusView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Button("View Latest Log") {
-                            logContent = appState.seService.readLatestLog()
-                            showingLog = true
+                            Task {
+                                let path = FileLocations.seLatestLog
+                                logContent = await Task.detached {
+                                    ScriptExtenderService.readLogTail(at: path, maxBytes: 100_000)
+                                }.value
+                                showingLog = true
+                            }
                         }
                         .help("Display the most recent SE log inline")
                         Button("Open Logs Folder") {

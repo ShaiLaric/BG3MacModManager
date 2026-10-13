@@ -268,3 +268,23 @@ private func testCompressRawLZ4(_ data: Data) throws -> Data {
     output.count = encoded
     return output
 }
+
+/// Each test owns its credential store; no Keychain or real account is involved.
+final class TestNexusCredentialStore: NexusCredentialStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+    private(set) var readCount = 0
+
+    init(_ value: String? = nil) { self.value = value }
+    func apiKey() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        readCount += 1
+        return value
+    }
+    func setAPIKey(_ value: String?) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        self.value = value
+    }
+}

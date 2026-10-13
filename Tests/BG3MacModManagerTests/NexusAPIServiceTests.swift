@@ -9,7 +9,30 @@ final class NexusAPIServiceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        service = NexusAPIService()
+        service = NexusAPIService(
+            credentialStore: TestNexusCredentialStore(),
+            cacheURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        )
+    }
+
+    func testAuthenticatedUpdateUsesDummyKeyAndMockedNetwork() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TestNexusURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let service = NexusAPIService(
+            session: session, credentialStore: TestNexusCredentialStore("dummy-test-key"),
+            cacheURL: directory.appendingPathComponent("cache.json")
+        )
+        let candidate = NexusUpdateCandidate(
+            modUUID: "test", installedVersion: "1.0", nexusURL: "https://www.nexusmods.com/baldursgate3/mods/42"
+        )
+        let report = try await service.checkForUpdates(candidates: [candidate]) { _, _ in }
+        XCTAssertEqual(report.checkedCount, 1)
+        XCTAssertEqual(report.results["test"]?.latestVersion, "2.0")
+        XCTAssertTrue(report.isComplete)
     }
 
     // MARK: - Extract Mod ID
@@ -173,4 +196,17 @@ final class NexusAPIServiceTests: XCTestCase {
         XCTAssertEqual(decoded.results["test-uuid"]?.latestVersion, "2.0")
         XCTAssertNotNil(decoded.lastFullCheck)
     }
+}
+
+private final class TestNexusURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apikey"), "dummy-test-key")
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"name":"Test","version":"2.0","available":true}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

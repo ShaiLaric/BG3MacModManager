@@ -542,7 +542,9 @@ struct HelpView: View {
             helpText("""
             When importing archives (.zip, .tar, etc.), the app automatically extracts all .pak \
             files and their companion info.json files into the Mods folder. After import, you are \
-            prompted to activate the newly imported mods.
+            prompted to activate the newly imported mods. PAKs are validated before installation. \
+            Replaced PAKs and metadata are retained in ImportBackups; use Settings > Paths > \
+            Show Import Copies to find them. ZIP and tar extraction have size and entry limits.
             """)
 
             helpHeading("Updating an Installed Mod")
@@ -602,15 +604,17 @@ struct HelpView: View {
             helpText("""
             Click \"Restore\" next to any backup to replace your current modsettings.lsx with \
             that backup. A safety backup of the current state is created first. You will be asked \
-            to confirm before restoring.
+            to confirm before restoring. Backup filenames and Reveal in Finder identify the exact \
+            file even when Spotlight does not find it. Backups are unlocked so they can be deleted.
             """)
 
             helpHeading("External Change Detection")
             helpText("""
             The app tracks a hash of modsettings.lsx after each save. If the file is modified \
             externally (e.g., by the game resetting it), you are prompted on next launch to \
-            restore from your most recent backup. The hash records which modsettings.lsx it \
-            came from, so pointing BG3 User Data at a different installation does not trigger \
+            restore the exact last successfully saved load order. Its recovery snapshot is created \
+            by your first successful save with this version, independently of pre-save backups. \
+            The snapshot and hash record which modsettings.lsx they came from, so pointing BG3 User Data at a different installation does not trigger \
             this prompt; checking resumes after your first save there.
             """)
 
@@ -968,6 +972,7 @@ struct HelpView: View {
                 "Changing a location reloads mods, profiles, backups, and saves from the new folders. Nothing is copied, moved, or deleted; the app creates files there only as it normally would, for example when you save.",
                 "If the load order has unsaved changes, you are asked to save them first. Saving writes to the current modsettings.lsx before the switch.",
                 "Choose… and Reset are unavailable while an import, export, mod update, update check, save scan, or readiness check is running.",
+                "Recovery storage — Shows the space used by settings, update, and import copies. Clean Recovery Storage removes expired import copies, restored update copies, and unused update backups after confirmation; active update backups are retained.",
                 "Resolved Paths — The Mods folder, modsettings.lsx, game app, and Script Extender dylib derived from these locations. A red mark here usually means a chosen folder is not the right one.",
             ])
 
@@ -1050,7 +1055,7 @@ struct HelpView: View {
             helpHeading("External modsettings.lsx Change Detected")
             helpText("""
             This alert appears when something modified modsettings.lsx outside the app. \
-            Choose \"Restore from Backup\" to recover your last saved configuration, or \
+            Choose \"Restore Last Saved Order\" to recover your last saved configuration, or \
             \"Keep Current\" to accept the external changes.
             """)
 

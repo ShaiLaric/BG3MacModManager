@@ -66,7 +66,7 @@ struct VersionedJSONStore<Payload: Codable> {
             } catch {
                 throw StoreError.migrationFailed(url, error.localizedDescription)
             }
-            try save(migrated)
+            try write(migrated)
             return migrated
         }
 
@@ -82,6 +82,12 @@ struct VersionedJSONStore<Payload: Codable> {
 
     /// Atomically persist the current schema in a stable, human-readable format.
     func save(_ payload: Payload) throws {
+        // Even callers that ignored a failed load cannot overwrite unreadable user data.
+        _ = try load()
+        try write(payload)
+    }
+
+    private func write(_ payload: Payload) throws {
         let document = VersionedDocument(
             schemaVersion: currentSchemaVersion,
             payload: payload
@@ -108,7 +114,7 @@ struct VersionedJSONStore<Payload: Codable> {
     func resetPreservingExisting(with payload: Payload) throws -> URL? {
         let backupURL = try backupExistingDocument()
         do {
-            try save(payload)
+            try write(payload)
         } catch {
             if let backupURL {
                 try? FileManager.default.removeItem(at: url)

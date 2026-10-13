@@ -388,7 +388,7 @@ final class NexusURLImportService {
                 inQuotes.toggle()
             } else if character == separator, !inQuotes {
                 finishField()
-            } else if (character == "\n" || character == "\r"), !inQuotes {
+            } else if (character == "\n" || character == "\r" || character == "\r\n"), !inQuotes {
                 finishRecord()
                 if character == "\r", next < content.endIndex, content[next] == "\n" {
                     index = content.index(after: next)

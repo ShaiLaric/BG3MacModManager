@@ -2,9 +2,15 @@
 
 import Foundation
 
+protocol ModDiscovering: Sendable {
+    func discoverMods() throws -> [ModInfo]
+    func discoverCanonicalMods() throws -> [ModInfo]
+    func discoverModsWithState() throws -> ModDiscoveryService.DiscoveryState
+}
+
 /// Discovers mods by scanning the Mods folder and parsing metadata from
 /// `info.json` files, `meta.lsx` inside `.pak` archives, or filenames.
-struct ModDiscoveryService: Sendable {
+struct ModDiscoveryService: ModDiscovering {
 
     private let modSettingsService = ModSettingsService()
     private let modsFolder: URL

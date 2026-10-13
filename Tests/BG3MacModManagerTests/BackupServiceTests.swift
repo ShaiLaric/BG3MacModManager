@@ -102,6 +102,17 @@ final class BackupServiceTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: safety.url), "live settings")
     }
 
+    func testRestoreLockedLegacyBackupDoesNotLockPreviouslyUnlockedLiveFile() throws {
+        let original = try makeBackup(name: "locked-original.lsx", daysOld: 60)
+        XCTAssertFalse(service.isModSettingsLocked())
+        try service.restore(backup: original) {
+            XCTAssertFalse(self.service.isModSettingsLocked())
+        }
+        XCTAssertTrue(try isLocked(original.url))
+        XCTAssertFalse(service.isModSettingsLocked())
+        XCTAssertEqual(try String(contentsOf: settings), "backup settings")
+    }
+
     private func makeBackup(name: String, daysOld: Int) throws -> BackupService.Backup {
         let url = backups.appendingPathComponent(name)
         try Data("backup settings".utf8).write(to: url)

@@ -183,6 +183,7 @@ struct LarianSaveMetadataReader: Sendable {
         let parsedAttributes = try parseAttributes(
             attributesData,
             names: names,
+            nodeCount: parsedNodes.count,
             usesAdjacency: usesAdjacency,
             limits: limits
         )
@@ -305,6 +306,7 @@ struct LarianSaveMetadataReader: Sendable {
     private func parseAttributes(
         _ data: Data,
         names: [[String]],
+        nodeCount: Int,
         usesAdjacency: Bool,
         limits: Limits
     ) throws -> [Attribute] {
@@ -316,7 +318,7 @@ struct LarianSaveMetadataReader: Sendable {
         var result: [Attribute] = []
         result.reserveCapacity(count)
         var runningValueOffset = 0
-        var previousByNodeReference: [Int] = []
+        var previousByNodeReference = [Int](repeating: -1, count: nodeCount + 1)
 
         for index in 0..<count {
             let nameReference = try cursor.readUInt32()
@@ -346,8 +348,7 @@ struct LarianSaveMetadataReader: Sendable {
 
             guard !usesAdjacency else { continue }
             let nodeReference = Int(third) + 1
-            guard nodeReference >= 0 else { throw ReaderError.malformed("invalid attribute node reference") }
-            while previousByNodeReference.count <= nodeReference { previousByNodeReference.append(-1) }
+            guard nodeReference >= 0, nodeReference <= nodeCount else { throw ReaderError.malformed("invalid attribute node reference") }
             if previousByNodeReference[nodeReference] >= 0 {
                 result[previousByNodeReference[nodeReference]].nextAttributeIndex = index
             }

@@ -54,7 +54,7 @@ actor NexusAPIService {
     private let session: URLSession
     private let applicationName: String
     private let applicationVersion: String
-    nonisolated let credentialStore: NexusCredentialStore
+    nonisolated let credentialStore: any NexusCredentialStoring
 
     /// Minimum interval between API requests (to respect rate limits).
     private let requestInterval: TimeInterval = 1.0
@@ -72,7 +72,7 @@ actor NexusAPIService {
 
     init(
         session: URLSession? = nil,
-        credentialStore: NexusCredentialStore = NexusCredentialStore(),
+        credentialStore: any NexusCredentialStoring = NexusCredentialStore(),
         cacheURL: URL = FileLocations.appSupportDirectory
             .appendingPathComponent("nexus_update_cache.json"),
         applicationName: String = "BG3 Mac Mod Manager",
@@ -87,7 +87,6 @@ actor NexusAPIService {
         self.cacheURL = cacheURL
         self.applicationName = applicationName
         self.applicationVersion = applicationVersion
-        credentialStore.migrateLegacyValueIfNeeded()
         cache = Self.loadCache(from: cacheURL)
     }
 
@@ -270,7 +269,7 @@ actor NexusAPIService {
     @discardableResult
     private func saveCache() -> Bool {
         do {
-            try FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
+            try FileLocations.ensureDirectoryExists(cacheURL.deletingLastPathComponent())
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(cache)

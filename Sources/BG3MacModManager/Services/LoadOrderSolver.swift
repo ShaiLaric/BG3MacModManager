@@ -15,6 +15,7 @@ struct LoadOrderSolver {
         case conflictingPins
         case pinOutOfRange
         case pinBlocked
+        case searchLimit
         case duplicateIdentity
     }
 
@@ -267,79 +268,92 @@ struct LoadOrderSolver {
             ? Self.effectiveTiers(for: originalIndex.sorted { $0.value < $1.value }.compactMap { modsByUUID[$0.key] })
             : [:]
 
-        for position in 1...modsByUUID.count {
-            let uuid: String
-            if let forced = pins.uuidByPosition[position] {
-                guard remaining.contains(forced.uuid) else {
-                    return .conflict(Conflict(
-                        kind: .pinBlocked,
-                        message: "The mod pinned to position \(position) was already constrained to another position.",
-                        affectedModUUIDs: [forced.uuid],
-                        ruleIDs: forced.ruleIDs
-                    ))
-                }
-                guard inDegree[forced.uuid, default: 0] == 0 else {
-                    let blockers = remaining.filter {
-                        adjacency[$0, default: []].contains(forced.uuid)
-                    }.sorted()
-                    let contributingRules = blockers.flatMap {
-                        edgeRuleIDs[Edge(from: $0, to: forced.uuid)] ?? []
-                    }
-                    return .conflict(Conflict(
-                        kind: .pinBlocked,
-                        message: "The mod pinned to position \(position) must load after an unresolved dependency or rule target.",
-                        affectedModUUIDs: blockers + [forced.uuid],
-                        ruleIDs: Array(Set(forced.ruleIDs + contributingRules)).sorted { $0.uuidString < $1.uuidString }
-                    ))
-                }
-                uuid = forced.uuid
-            } else {
-                let candidates = remaining.filter {
-                    inDegree[$0, default: 0] == 0 && pins.positionByUUID[$0] == nil
-                }
-                guard let selected = candidates.min(by: {
-                    isHigherPriority(
-                        $0,
-                        than: $1,
-                        tiers: tiers,
-                        originalIndex: originalIndex,
-                        mode: mode
-                    )
-                }) else {
-                    if let cycle = findCycle(in: remaining, adjacency: adjacency) {
-                        let ruleIDs = zip(cycle, cycle.dropFirst() + [cycle[0]]).flatMap {
-                            edgeRuleIDs[Edge(from: $0.0, to: $0.1)] ?? []
-                        }
-                        return .conflict(Conflict(
-                            kind: .cycle,
-                            message: "Dependencies and load-order rules form a cycle.",
-                            affectedModUUIDs: cycle,
-                            ruleIDs: Array(Set(ruleIDs)).sorted { $0.uuidString < $1.uuidString }
-                        ))
-                    }
-
-                    let futurePinned = remaining.compactMap { uuid -> UUID? in
-                        pins.positionByUUID[uuid]?.ruleIDs.first
-                    }
-                    return .conflict(Conflict(
-                        kind: .pinBlocked,
-                        message: "Pinned positions leave no eligible mod for position \(position).",
-                        affectedModUUIDs: remaining.sorted(),
-                        ruleIDs: Array(Set(futurePinned)).sorted { $0.uuidString < $1.uuidString }
-                    ))
-                }
-                uuid = selected
+        if let cycle = findCycle(in: remaining, adjacency: adjacency) {
+            let ruleIDs = zip(cycle, cycle.dropFirst() + [cycle[0]]).flatMap {
+                edgeRuleIDs[Edge(from: $0.0, to: $0.1)] ?? []
             }
-
-            guard let mod = modsByUUID[uuid] else { continue }
-            ordered.append(mod)
-            remaining.remove(uuid)
-            for dependent in adjacency[uuid, default: []] where remaining.contains(dependent) {
-                inDegree[dependent, default: 0] -= 1
-            }
+            return .conflict(Conflict(
+                kind: .cycle, message: "Dependencies and load-order rules form a cycle.",
+                affectedModUUIDs: cycle,
+                ruleIDs: Array(Set(ruleIDs)).sorted { $0.uuidString < $1.uuidString }
+            ))
         }
 
-        return .ordered(ordered)
+        // Fixed positions require looking ahead: an eligible unrelated mod can consume
+        // the last slot needed by a pinned mod's prerequisite. Search alternatives only
+        // when pins exist, pruning states whose remaining prerequisites cannot fit.
+        var predecessors: [String: Set<String>] = [:]
+        for (source, targets) in adjacency {
+            for target in targets { predecessors[target, default: []].insert(source) }
+        }
+        var ancestors: [String: Set<String>] = [:]
+        for uuid in pins.positionByUUID.keys {
+            var found = Set<String>()
+            var pending = Array(predecessors[uuid, default: []])
+            while let node = pending.popLast() {
+                if found.insert(node).inserted { pending += predecessors[node, default: []] }
+            }
+            ancestors[uuid] = found
+        }
+        func canFitPins(at position: Int) -> Bool {
+            for (uuid, pin) in pins.positionByUUID where remaining.contains(uuid) {
+                guard pin.position >= position else { return false }
+                let required = ancestors[uuid, default: []].intersection(remaining)
+                if required.contains(where: { (pins.positionByUUID[$0]?.position ?? 0) >= pin.position }) {
+                    return false
+                }
+                let occupied = pins.uuidByPosition.filter {
+                    $0.key >= position && $0.key < pin.position && !required.contains($0.value.uuid)
+                }.count
+                if required.count > pin.position - position - occupied { return false }
+            }
+            return true
+        }
+        var failedStates = Set<Set<String>>()
+        var explored = 0
+        var exceededLimit = false
+        func search(_ position: Int) -> Bool {
+            if remaining.isEmpty { return true }
+            guard canFitPins(at: position), !failedStates.contains(remaining) else { return false }
+            explored += 1
+            guard explored <= 100_000 else { exceededLimit = true; return false }
+            let candidates: [String]
+            if let forced = pins.uuidByPosition[position] {
+                candidates = remaining.contains(forced.uuid) && inDegree[forced.uuid, default: 0] == 0
+                    ? [forced.uuid] : []
+            } else {
+                candidates = remaining.filter {
+                    inDegree[$0, default: 0] == 0 && pins.positionByUUID[$0] == nil
+                }.sorted {
+                    isHigherPriority($0, than: $1, tiers: tiers, originalIndex: originalIndex, mode: mode)
+                }
+            }
+            for uuid in candidates {
+                ordered.append(modsByUUID[uuid]!)
+                remaining.remove(uuid)
+                for target in adjacency[uuid, default: []] { inDegree[target, default: 0] -= 1 }
+                if search(position + 1) { return true }
+                for target in adjacency[uuid, default: []] { inDegree[target, default: 0] += 1 }
+                remaining.insert(uuid)
+                ordered.removeLast()
+                if exceededLimit { return false }
+            }
+            failedStates.insert(remaining)
+            return false
+        }
+        if search(1) { return .ordered(ordered) }
+        let affected = Set(Array(pins.positionByUUID.keys) + ancestors.values.flatMap { $0 })
+        let contributingRules = edgeRuleIDs.filter {
+            affected.contains($0.key.from) && affected.contains($0.key.to)
+        }.values.flatMap { $0 }
+        return .conflict(Conflict(
+            kind: exceededLimit ? .searchLimit : .pinBlocked,
+            message: exceededLimit
+                ? "The pinned order is too complex to resolve automatically. Relax a pin and try again."
+                : "Pinned positions cannot accommodate the required dependencies and rules.",
+            affectedModUUIDs: affected.sorted(),
+            ruleIDs: Array(Set(pins.positionByUUID.values.flatMap(\.ruleIDs) + contributingRules)).sorted { $0.uuidString < $1.uuidString }
+        ))
     }
 
     /// Category tier used by smart sorting, keyed by comparison UUID.

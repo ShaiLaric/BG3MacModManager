@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import AppKit
 
 /// View for managing modsettings.lsx backups.
 struct BackupManagerView: View {
@@ -58,12 +59,21 @@ struct BackupManagerView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(backup.displayName)
                             .font(.headline)
+                        Text(backup.url.lastPathComponent)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .help(backup.url.path)
                         Text(ByteCountFormatter.string(fromByteCount: Int64(backup.fileSize), countStyle: .file))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
 
                     Spacer()
+
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([backup.url])
+                    }
+                    .help(backup.url.path)
 
                     Button("Restore") {
                         selectedBackup = backup

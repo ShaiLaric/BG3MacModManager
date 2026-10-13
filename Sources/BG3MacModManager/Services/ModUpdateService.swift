@@ -48,7 +48,7 @@ actor ModUpdateService {
             case .unsafeHistory(let detail):
                 return "The update record contains an unsafe file path: \(detail)"
             case .operationInProgress:
-                return "Another Mods-folder mutation is already in progress."
+                return "Another file operation is already in progress. Wait for it to finish."
             case .installedChangedSinceInspection:
                 return "The installed PAK changed after the update plan was reviewed. Inspect the archive again."
             case .candidateChangedSinceInspection:
@@ -216,7 +216,8 @@ actor ModUpdateService {
             try fileManager.copyItem(at: original, to: backup)
             backupItems.append(.init(
                 originalPath: original.path,
-                backupRelativePath: backup.lastPathComponent
+                backupRelativePath: backup.lastPathComponent,
+                sha256: try sha256(of: backup)
             ))
         }
 
@@ -233,60 +234,57 @@ actor ModUpdateService {
                 }
                 replacements.append(.init(source: candidateInfoJSON, destination: installedJSON))
             }
-            try TransactionalFileService.replaceFiles(replacements, fileManager: fileManager)
-            if plan.candidateInfoJSON == nil, fileManager.fileExists(atPath: installedJSON.path) {
-                try fileManager.removeItem(at: installedJSON)
+            var committedRecord: ModUpdateHistoryRecord?
+            try TransactionalFileService.replaceFiles(
+                replacements,
+                removing: plan.candidateInfoJSON == nil ? [installedJSON] : [],
+                fileManager: fileManager
+            ) {
+                try verifyInstalled(plan: plan)
+                let installedAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+                let record = ModUpdateHistoryRecord(
+                    id: transactionID,
+                    modUUID: plan.targetUUID,
+                    modName: plan.targetName,
+                    sourceArchiveName: plan.sourceArchiveName,
+                    previousVersion64: plan.installedVersion64,
+                    installedVersion64: plan.candidateVersion64,
+                    previousSHA256: plan.installedSHA256,
+                    installedSHA256: try sha256(of: plan.installedPAK),
+                    installedAt: installedAt,
+                    status: .installed,
+                    restoredAt: nil,
+                    backupDirectoryName: transactionID.uuidString,
+                    backupItems: backupItems,
+                    createdPaths: createdDestinations.map(\.path),
+                    wasActive: plan.wasActive,
+                    previousUserPosition: plan.previousUserPosition,
+                    nexusURL: plan.nexusURL
+                )
+                payload.records.insert(record, at: 0)
+                payload.provenanceByUUID[plan.targetUUID] = ModUpdateProvenance(
+                    modUUID: plan.targetUUID,
+                    installedPath: plan.installedPAK.path,
+                    installedSHA256: record.installedSHA256,
+                    installedVersion64: plan.candidateVersion64,
+                    nexusURL: plan.nexusURL,
+                    nexusModID: plan.nexusURL.flatMap(extractNexusModID),
+                    selectedFileID: nil,
+                    lastTransactionID: transactionID,
+                    updatedAt: installedAt
+                )
+                try historyService.save(payload)
+                committedRecord = record
             }
-
-            await progress(.init(stage: .verifying, completed: 3, total: 4))
-            try verifyInstalled(plan: plan)
-
-            let installedAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
-            let record = ModUpdateHistoryRecord(
-                id: transactionID,
-                modUUID: plan.targetUUID,
-                modName: plan.targetName,
-                sourceArchiveName: plan.sourceArchiveName,
-                previousVersion64: plan.installedVersion64,
-                installedVersion64: plan.candidateVersion64,
-                previousSHA256: plan.installedSHA256,
-                installedSHA256: try sha256(of: plan.installedPAK),
-                installedAt: installedAt,
-                status: .installed,
-                restoredAt: nil,
-                backupDirectoryName: transactionID.uuidString,
-                backupItems: backupItems,
-                createdPaths: createdDestinations.map(\.path),
-                wasActive: plan.wasActive,
-                previousUserPosition: plan.previousUserPosition,
-                nexusURL: plan.nexusURL
-            )
-            payload.records.insert(record, at: 0)
-            payload.provenanceByUUID[plan.targetUUID] = ModUpdateProvenance(
-                modUUID: plan.targetUUID,
-                installedPath: plan.installedPAK.path,
-                installedSHA256: record.installedSHA256,
-                installedVersion64: plan.candidateVersion64,
-                nexusURL: plan.nexusURL,
-                nexusModID: plan.nexusURL.flatMap(extractNexusModID),
-                selectedFileID: nil,
-                lastTransactionID: transactionID,
-                updatedAt: installedAt
-            )
-            try historyService.save(payload)
             await progress(.init(stage: .idle, completed: 4, total: 4))
-            return record
+            return committedRecord!
         } catch {
             await progress(.init(stage: .rollingBack, completed: 3, total: 4))
-            do {
-                try restoreBackupItems(
-                    backupItems,
-                    backupDirectory: backupDirectory,
-                    createdDestinations: createdDestinations
-                )
-            } catch {
-                throw UpdateError.rollbackFailed(error.localizedDescription)
+            // TransactionalFileService already rolls back replacements, deletions and finalize failures.
+            if case TransactionalFileService.TransactionError.rollbackFailed(let paths) = error {
+                throw UpdateError.rollbackFailed(paths.joined(separator: ", "))
             }
+            try? fileManager.removeItem(at: backupDirectory)
             throw UpdateError.verificationFailed(error.localizedDescription)
         }
     }
@@ -324,6 +322,15 @@ actor ModUpdateService {
             guard fileManager.fileExists(atPath: backup.path) else {
                 throw UpdateError.backupMissing(backup.path)
             }
+            if let expected = item.sha256, try sha256(of: backup) != expected {
+                throw UpdateError.backupMissing("Backup integrity check failed: " + backup.path)
+            }
+            if backup.pathExtension.caseInsensitiveCompare("pak") == .orderedSame {
+                _ = try PakReader.listFiles(at: backup)
+                guard try sha256(of: backup) == persistedRecord.previousSHA256 else {
+                    throw UpdateError.backupMissing("Backup integrity check failed: " + backup.path)
+                }
+            }
         }
         let createdURLs = try (persistedRecord.createdPaths ?? []).map { path -> URL in
             let url = URL(fileURLWithPath: path)
@@ -348,25 +355,21 @@ actor ModUpdateService {
                 source: backupDirectory.appendingPathComponent($0.backupRelativePath),
                 destination: URL(fileURLWithPath: $0.originalPath)
             )
-        }, fileManager: fileManager)
-        for url in createdURLs {
-            if fileManager.fileExists(atPath: url.path) {
-                try fileManager.removeItem(at: url)
-            }
-        }
-        _ = try PakReader.listFiles(at: installedPAK)
+        }, removing: createdURLs, fileManager: fileManager) {
+            _ = try PakReader.listFiles(at: installedPAK)
 
-        payload.records[historyIndex].status = .restored
-        let restoredAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
-        payload.records[historyIndex].restoredAt = restoredAt
-        if var provenance = payload.provenanceByUUID[persistedRecord.modUUID] {
-            provenance.installedPath = installedPAK.path
-            provenance.installedSHA256 = try sha256(of: installedPAK)
-            provenance.installedVersion64 = persistedRecord.previousVersion64
-            provenance.updatedAt = restoredAt
-            payload.provenanceByUUID[persistedRecord.modUUID] = provenance
+            payload.records[historyIndex].status = .restored
+            let restoredAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+            payload.records[historyIndex].restoredAt = restoredAt
+            if var provenance = payload.provenanceByUUID[persistedRecord.modUUID] {
+                provenance.installedPath = installedPAK.path
+                provenance.installedSHA256 = try sha256(of: installedPAK)
+                provenance.installedVersion64 = persistedRecord.previousVersion64
+                provenance.updatedAt = restoredAt
+                payload.provenanceByUUID[persistedRecord.modUUID] = provenance
+            }
+            try historyService.save(payload)
         }
-        try historyService.save(payload)
         await progress(.init(stage: .idle, completed: 2, total: 2))
         return payload.records[historyIndex]
     }
@@ -381,22 +384,6 @@ actor ModUpdateService {
             $0.pakFilePath?.standardizedFileURL == plan.installedPAK.standardizedFileURL
         }), ModIdentity.comparisonKey(installed.uuid) == plan.targetUUID else {
             throw UpdateError.verificationFailed("The committed PAK did not rediscover with the expected UUID.")
-        }
-    }
-
-    private func restoreBackupItems(
-        _ items: [ModUpdateBackupItem],
-        backupDirectory: URL,
-        createdDestinations: [URL]
-    ) throws {
-        try TransactionalFileService.replaceFiles(items.map {
-            .init(
-                source: backupDirectory.appendingPathComponent($0.backupRelativePath),
-                destination: URL(fileURLWithPath: $0.originalPath)
-            )
-        }, fileManager: fileManager)
-        for url in createdDestinations where fileManager.fileExists(atPath: url.path) {
-            try fileManager.removeItem(at: url)
         }
     }
 

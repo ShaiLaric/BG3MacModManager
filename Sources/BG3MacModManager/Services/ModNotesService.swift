@@ -41,6 +41,7 @@ final class ModNotesService {
 
     private var notes: [String: String] = [:]
 
+    private(set) var loadError: Error?
     private let storageURL: URL
 
     init(storageURL: URL? = nil) {
@@ -50,8 +51,12 @@ final class ModNotesService {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: storageURL),
-              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+        guard FileManager.default.fileExists(atPath: storageURL.path) else { return }
+        let decoded: [String: String]
+        do {
+            decoded = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: storageURL))
+        } catch {
+            loadError = error
             return
         }
         notes = Dictionary(
@@ -61,6 +66,7 @@ final class ModNotesService {
     }
 
     private func save() throws {
+        if let loadError { throw loadError }
         try FileLocations.ensureDirectoryExists(storageURL.deletingLastPathComponent())
         let data = try JSONEncoder().encode(notes)
         try data.write(to: storageURL, options: .atomic)

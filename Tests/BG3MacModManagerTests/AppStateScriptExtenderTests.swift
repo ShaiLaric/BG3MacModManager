@@ -6,7 +6,7 @@ import XCTest
 final class AppStateScriptExtenderTests: XCTestCase {
     @MainActor
     func testApplyingDeployedStatusClearsStaleRequirementWarning() {
-        let state = AppState()
+        let state = AppState(nexusCredentialStore: TestNexusCredentialStore())
         state.activeMods = [
             makeModInfo(
                 uuid: "11111111-1111-1111-1111-111111111111",

@@ -55,6 +55,7 @@ final class CategoryInferenceService {
 
     private var userOverrides: [String: ModCategory] = [:]
 
+    private(set) var loadError: Error?
     private let overridesURL: URL
 
     init(overridesURL: URL? = nil) {
@@ -64,8 +65,12 @@ final class CategoryInferenceService {
     }
 
     private func loadOverrides() {
-        guard let data = try? Data(contentsOf: overridesURL),
-              let decoded = try? JSONDecoder().decode([String: ModCategory].self, from: data) else {
+        guard FileManager.default.fileExists(atPath: overridesURL.path) else { return }
+        let decoded: [String: ModCategory]
+        do {
+            decoded = try JSONDecoder().decode([String: ModCategory].self, from: Data(contentsOf: overridesURL))
+        } catch {
+            loadError = error
             return
         }
         userOverrides = Dictionary(
@@ -75,6 +80,7 @@ final class CategoryInferenceService {
     }
 
     private func saveOverrides() throws {
+        if let loadError { throw loadError }
         try FileLocations.ensureDirectoryExists(overridesURL.deletingLastPathComponent())
         let data = try JSONEncoder().encode(userOverrides)
         try data.write(to: overridesURL, options: .atomic)

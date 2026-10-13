@@ -92,7 +92,7 @@ final class LocationSettingsTests: XCTestCase {
 
     @MainActor
     func testLocationsCanChangeWhenIdle() {
-        let state = AppState()
+        let state = AppState(nexusCredentialStore: TestNexusCredentialStore())
         clearBusyFlags(state)
         XCTAssertTrue(state.canChangeLocations)
     }
@@ -108,7 +108,7 @@ final class LocationSettingsTests: XCTestCase {
             ("isScanningSaveGames", \.isScanningSaveGames),
             ("isCheckingReadiness", \.isCheckingReadiness),
         ]
-        let state = AppState()
+        let state = AppState(nexusCredentialStore: TestNexusCredentialStore())
 
         for (name, flag) in flags {
             clearBusyFlags(state)

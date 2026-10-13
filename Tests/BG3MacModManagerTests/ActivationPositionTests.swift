@@ -81,7 +81,7 @@ final class ActivationPositionTests: XCTestCase {
         }
 
         let state = await MainActor.run { () -> AppState in
-            let state = AppState()
+            let state = AppState(nexusCredentialStore: TestNexusCredentialStore())
             state.activeMods = [
                 makeModInfo(
                     uuid: Constants.gustavUUID,
@@ -112,7 +112,7 @@ final class ActivationPositionTests: XCTestCase {
 
     @MainActor
     private func makeState() -> AppState {
-        let state = AppState()
+        let state = AppState(nexusCredentialStore: TestNexusCredentialStore())
         state.activeMods = [
             makeModInfo(uuid: "11111111-1111-1111-1111-111111111111", name: "First"),
             makeModInfo(uuid: "22222222-2222-2222-2222-222222222222", name: "Second"),

@@ -142,7 +142,8 @@ final class AppState: ObservableObject {
     // MARK: - Services
 
     var modSettingsService = ModSettingsService()
-    var discoveryService = ModDiscoveryService()
+    var discoveryService: any ModDiscovering = ModDiscoveryService()
+    var modImportService: any ModImporting = ModImportService()
     var profileService = ProfileService()
     var backupService = BackupService()
     let seService = ScriptExtenderService()
@@ -154,7 +155,8 @@ final class AppState: ObservableObject {
     let loadOrderImportService = LoadOrderImportService()
     var nexusURLService = NexusURLService()
     var modNotesService = ModNotesService()
-    var nexusAPIService = NexusAPIService()
+    var nexusAPIService: NexusAPIService
+    private let nexusCredentialStore: any NexusCredentialStoring
     var nexusUpdatePreferenceService = NexusUpdatePreferenceService()
     var loadOrderRuleService = LoadOrderRuleService()
     let loadOrderSolver = LoadOrderSolver()
@@ -165,9 +167,26 @@ final class AppState: ObservableObject {
     var modUpdateHistoryService = ModUpdateHistoryService()
     var modUpdateService = ModUpdateService()
 
+    private var modsScanGeneration = 0
+    private var locationsGeneration = 0
+    @Published private var filesystemMutationInProgress = false
+
+    /// Main-actor ownership covers the entire operation, including awaited scans.
+    private func beginFilesystemMutation() -> Bool {
+        guard !filesystemMutationInProgress else {
+            showError(ModUpdateService.UpdateError.operationInProgress)
+            return false
+        }
+        filesystemMutationInProgress = true
+        modsScanGeneration += 1
+        return true
+    }
+
     // MARK: - Initialization
 
-    init() {
+    init(nexusCredentialStore: any NexusCredentialStoring = NexusCredentialStore()) {
+        self.nexusCredentialStore = nexusCredentialStore
+        self.nexusAPIService = NexusAPIService(credentialStore: nexusCredentialStore)
         isGameInstalled = FileLocations.isGameInstalled
     }
 
@@ -193,7 +212,7 @@ final class AppState: ObservableObject {
     /// is running. Changing a location then would rebuild the services out
     /// from under it, so the Settings location controls are disabled.
     var canChangeLocations: Bool {
-        !(isLoading || isImporting || isExporting || isUpdatingMod
+        pendingModUpdatePlan == nil && !filesystemMutationInProgress && !(isLoading || isImporting || isExporting || isUpdatingMod
           || isCheckingForUpdates || isScanningSaveGames || isCheckingReadiness)
     }
 
@@ -201,13 +220,17 @@ final class AppState: ObservableObject {
     /// disk-backed state after the user changes a configured location.
     /// Callers must resolve unsaved load-order changes first; this discards them.
     func reloadForPathChange() {
+        guard canChangeLocations else { return }
+        locationsGeneration += 1
+        modsScanGeneration += 1
         discoveryService = ModDiscoveryService()
+        modImportService = ModImportService()
         profileService = ProfileService()
         backupService = BackupService()
         categoryService = CategoryInferenceService()
         nexusURLService = NexusURLService()
         modNotesService = ModNotesService()
-        nexusAPIService = NexusAPIService()
+        nexusAPIService = NexusAPIService(credentialStore: nexusCredentialStore)
         nexusUpdatePreferenceService = NexusUpdatePreferenceService()
         loadOrderRuleService = LoadOrderRuleService()
         saveGameScanner = SaveGameScanner()
@@ -228,6 +251,7 @@ final class AppState: ObservableObject {
         selectedModIDs = []
         selectedSaveID = nil
         hasUnsavedChanges = false
+        showExternalChangeAlert = false
         undoStack = []
         redoStack = []
         readinessReport = nil
@@ -259,11 +283,15 @@ final class AppState: ObservableObject {
     }
 
     func refreshMods() async {
+        modsScanGeneration += 1
+        let generation = modsScanGeneration
+        let location = locationsGeneration
         do {
             let service = discoveryService
             let result = try await Task.detached(priority: .userInitiated) {
                 try service.discoverModsWithState()
             }.value
+            guard generation == modsScanGeneration, location == locationsGeneration else { return }
             if hasUnsavedChanges {
                 let merged = ImportDiscoveryMerger.merge(
                     previousActive: activeMods,
@@ -286,15 +314,18 @@ final class AppState: ObservableObject {
                 showDuplicateResolver = !duplicateGroups.isEmpty
             }
         } catch {
+            guard generation == modsScanGeneration, location == locationsGeneration else { return }
             showError(error)
         }
     }
 
     func refreshProfiles() async {
         do {
-            profiles = try await Task.detached {
-                try ProfileService().listProfiles()
-            }.value
+            let service = profileService
+            let generation = locationsGeneration
+            let result = try await Task.detached { try service.listProfiles() }.value
+            guard generation == locationsGeneration else { return }
+            profiles = result
         } catch {
             showError(error)
         }
@@ -302,9 +333,11 @@ final class AppState: ObservableObject {
 
     func refreshBackups() async {
         do {
-            backups = try await Task.detached {
-                try BackupService().listBackups()
-            }.value
+            let service = backupService
+            let generation = locationsGeneration
+            let result = try await Task.detached { try service.listBackups() }.value
+            guard generation == locationsGeneration else { return }
+            backups = result
         } catch {
             showError(error)
         }
@@ -571,6 +604,8 @@ final class AppState: ObservableObject {
     /// Returns true only when the new load order was written successfully.
     @discardableResult
     func performSave() async -> Bool {
+        guard beginFilesystemMutation() else { return false }
+        defer { filesystemMutationInProgress = false }
         let preferences = SavePreferences()
         let settingsExisted = FileLocations.modSettingsExists
         let wasLocked = settingsExisted && backupService.isModSettingsLocked()
@@ -585,8 +620,7 @@ final class AppState: ObservableObject {
             if settingsExisted && !backupService.unlockModSettings() && wasLocked {
                 throw SaveError.unlockFailed
             }
-            try modSettingsService.write(activeMods: activeMods)
-            recordModSettingsHash()
+            try ModSettingsRecoveryService().save(modSettingsService.data(activeMods: activeMods))
 
             if preferences.lockAfterSave {
                 let locked = backupService.lockModSettings()
@@ -598,6 +632,7 @@ final class AppState: ObservableObject {
             }
 
             hasUnsavedChanges = false
+            showExternalChangeAlert = false
             readinessReport = nil
 
             if preferences.autoBackup && preferences.backupRetentionDays > 0 {
@@ -923,10 +958,15 @@ final class AppState: ObservableObject {
     // MARK: - Backups
 
     func restoreBackup(_ backup: BackupService.Backup) async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
         do {
-            try backupService.restore(backup: backup)
+            try backupService.restore(backup: backup) {
+                try ModSettingsRecoveryService().save(Data(contentsOf: FileLocations.modSettingsFile))
+            }
             hasUnsavedChanges = false
             await refreshMods()
+            showExternalChangeAlert = false
             statusMessage = "Restored from backup"
         } catch {
             showError(error)
@@ -940,6 +980,16 @@ final class AppState: ObservableObject {
         } catch {
             showError(error)
         }
+    }
+
+    func cleanRecoveryStorage(olderThanDays days: Int) async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
+        let storage = BackupStorageService()
+        do {
+            try await Task.detached { try storage.cleanExpiredRecoveryCopies(olderThanDays: days) }.value
+            statusMessage = "Cleaned expired recovery copies; active update backups were retained"
+        } catch { showError(error) }
     }
 
     // MARK: - Game Launch
@@ -1028,7 +1078,7 @@ final class AppState: ObservableObject {
         case .deleteModCrashSanityCheck:
             deleteModCrashSanityCheckIfNeeded()
         case .restoreModSettings:
-            await restoreFromLatestBackup()
+            await restoreLastSavedLoadOrder()
         case .viewScriptExtender:
             navigateToSidebarItem = "scriptExtender"
             shouldRecheck = false
@@ -1068,6 +1118,8 @@ final class AppState: ObservableObject {
     }
 
     func inspectModUpdate(sourceURL: URL) async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
         guard let target = modUpdateTarget else { return }
         isUpdatingMod = true
         modUpdateProgress = .init(stage: .inspecting, completed: 0, total: 1)
@@ -1094,6 +1146,8 @@ final class AppState: ObservableObject {
     }
 
     func applyPendingModUpdate() async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
         guard let plan = pendingModUpdatePlan else { return }
         isUpdatingMod = true
         defer { isUpdatingMod = false }
@@ -1117,6 +1171,7 @@ final class AppState: ObservableObject {
     }
 
     func cancelPendingModUpdate() {
+        guard !isUpdatingMod else { return }
         guard let plan = pendingModUpdatePlan else {
             modUpdateTarget = nil
             return
@@ -1127,6 +1182,8 @@ final class AppState: ObservableObject {
     }
 
     func restorePreviousModVersion(_ record: ModUpdateHistoryRecord) async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
         isUpdatingMod = true
         defer { isUpdatingMod = false }
         do {
@@ -1164,12 +1221,15 @@ final class AppState: ObservableObject {
     /// Import multiple mod files at once (for drag-and-drop or multi-select file picker).
     /// Tracks all new mods across the batch and prompts for activation once at the end.
     func importMods(from urls: [URL]) async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
         isImporting = true
         defer { isImporting = false }
 
         let modsFolder = FileLocations.modsFolder
+        let importer = modImportService
         let importResult = await Task.detached(priority: .userInitiated) {
-            ModImportService().importMods(from: urls, to: modsFolder)
+            importer.importMods(from: urls, to: modsFolder)
         }.value
 
         if !importResult.errors.isEmpty {
@@ -1184,23 +1244,21 @@ final class AppState: ObservableObject {
             return
         }
 
-        // Capture the latest UI state after file work finishes in case an archive import yielded.
-        let currentActiveMods = activeMods
-        let currentInactiveMods = inactiveMods
-        let currentHasUnsavedChanges = hasUnsavedChanges
-
         let newMods: [ModInfo]
         do {
             // Importing changes the files on disk, but it must not reload activation state from
             // modsettings.lsx: the in-memory load order may contain unsaved user changes.
             let service = discoveryService
+            let location = locationsGeneration
             let discoveredMods = try await Task.detached(priority: .userInitiated) {
                 try service.discoverCanonicalMods()
             }.value
+            guard location == locationsGeneration else { return }
+            modsScanGeneration += 1
             let merged = ImportDiscoveryMerger.merge(
-                previousActive: currentActiveMods,
-                previousInactive: currentInactiveMods,
-                hadUnsavedChanges: currentHasUnsavedChanges,
+                previousActive: activeMods,
+                previousInactive: inactiveMods,
+                hadUnsavedChanges: hasUnsavedChanges,
                 discovered: discoveredMods
             )
             activeMods = merged.active.map { inferCategory(for: $0) }
@@ -1592,9 +1650,11 @@ final class AppState: ObservableObject {
     private func refreshDuplicateGroups() async {
         do {
             let service = discoveryService
+            let generation = locationsGeneration
             let physicalMods = try await Task.detached(priority: .userInitiated) {
                 try service.discoverMods()
             }.value
+            guard generation == locationsGeneration else { return }
             duplicateGroups = Dictionary(grouping: physicalMods) {
                 ModIdentity.comparisonKey($0.uuid)
             }.values
@@ -1613,6 +1673,8 @@ final class AppState: ObservableObject {
 
     /// Delete a specific mod's PAK file from disk and refresh.
     func deletePakFile(for mod: ModInfo) async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
         guard let pakURL = mod.pakFilePath else { return }
 
         do {
@@ -1655,6 +1717,8 @@ final class AppState: ObservableObject {
     /// Permanently delete the PAK files (and companion info.json files) for the queued mods.
     /// Called after the user confirms the deletion dialog.
     func confirmDeleteMods() async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
         var deleted = 0
         for mod in modsToDelete {
             guard let pakURL = mod.pakFilePath else { continue }
@@ -1836,7 +1900,7 @@ final class AppState: ObservableObject {
     /// Set a user category override for a mod and re-infer.
     func setCategoryOverride(_ category: ModCategory?, for mod: ModInfo) {
         guard categoryService.setOverride(category, for: mod.uuid) else {
-            reportPersistenceFailure("category override")
+            reportPersistenceFailure("category override", loadError: categoryService.loadError)
             return
         }
         // Re-apply inference to this mod in whichever list it's in
@@ -1873,14 +1937,6 @@ final class AppState: ObservableObject {
 
     // MARK: - Last-Exported Order Recovery
 
-    /// Record a SHA-256 hash of the current modsettings.lsx after we write it.
-    private func recordModSettingsHash() {
-        guard let hash = hashOfModSettings() else { return }
-        let baseline = ModSettingsExportBaseline(hash: hash, path: FileLocations.modSettingsFile.path)
-        try? FileLocations.ensureDirectoryExists(FileLocations.appSupportDirectory)
-        try? baseline.fileContents.write(to: FileLocations.lastExportHashFile, atomically: true, encoding: .utf8)
-    }
-
     /// Compare the current modsettings.lsx against our last known export.
     /// If they differ, the game (or another tool) changed the file externally.
     /// A baseline recorded for a different modsettings.lsx (another BG3 User
@@ -1900,20 +1956,23 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Restore modsettings.lsx from the most recent backup (used when external change detected).
-    func restoreFromLatestBackup() async {
+    /// Recovery uses the successful export, never the pre-save safety backup.
+    func restoreLastSavedLoadOrder() async {
+        guard beginFilesystemMutation() else { return }
+        defer { filesystemMutationInProgress = false }
         do {
-            let allBackups = try backupService.listBackups()
-            guard let latest = allBackups.first else {
-                errorMessage = "No backups available to restore from."
-                showError = true
-                return
+            let recovery = ModSettingsRecoveryService()
+            let data = try recovery.savedData()
+            let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".lsx")
+            try data.write(to: source)
+            defer { try? FileManager.default.removeItem(at: source) }
+            try backupService.restore(backup: .init(id: "last-saved", url: source, date: Date(), fileSize: data.count)) {
+                try recovery.save(data)
             }
-            try backupService.restore(backup: latest)
             hasUnsavedChanges = false
             await refreshMods()
-            recordModSettingsHash()
-            statusMessage = "Restored modsettings.lsx from backup (\(latest.displayName))"
+            showExternalChangeAlert = false
+            statusMessage = "Restored the last successfully saved load order"
         } catch {
             showError(error)
         }
@@ -2066,7 +2125,7 @@ final class AppState: ObservableObject {
             return
         }
         guard nexusURLService.setURL(url, for: mod.uuid) else {
-            reportPersistenceFailure("Nexus URL")
+            reportPersistenceFailure("Nexus URL", loadError: nexusURLService.loadError)
             return
         }
         objectWillChange.send()
@@ -2075,7 +2134,7 @@ final class AppState: ObservableObject {
     /// Bulk-set Nexus URLs from an import operation.
     func bulkSetNexusURLs(_ urls: [String: String]) {
         guard nexusURLService.bulkSetURLs(urls) else {
-            reportPersistenceFailure("Nexus URLs")
+            reportPersistenceFailure("Nexus URLs", loadError: nexusURLService.loadError)
             return
         }
         objectWillChange.send()
@@ -2087,7 +2146,7 @@ final class AppState: ObservableObject {
     /// Set or clear a user note for a mod.
     func setModNote(_ text: String?, for mod: ModInfo) {
         guard modNotesService.setNote(text, for: mod.uuid) else {
-            reportPersistenceFailure("mod note")
+            reportPersistenceFailure("mod note", loadError: modNotesService.loadError)
             return
         }
         objectWillChange.send()
@@ -2259,8 +2318,11 @@ final class AppState: ObservableObject {
         statusMessage = "Error: \(error.localizedDescription)"
     }
 
-    private func reportPersistenceFailure(_ item: String) {
+    private func reportPersistenceFailure(_ item: String, loadError: Error? = nil) {
         errorMessage = "Could not save the \(item). The previous value was kept."
+        if let loadError {
+            errorMessage = (errorMessage ?? "") + " The saved document could not be read and was preserved. \(loadError.localizedDescription)"
+        }
         showError = true
         statusMessage = "Persistence error: \(item) was not saved"
     }

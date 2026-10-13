@@ -427,12 +427,12 @@ struct ModListView: View {
         }
 
         if case .restoreModSettings = warning.suggestedAction {
-            Button("Restore Backup") {
-                Task { await appState.restoreFromLatestBackup() }
+            Button("Restore Saved Order") {
+                Task { await appState.restoreLastSavedLoadOrder() }
             }
             .font(.caption2)
             .buttonStyle(.bordered)
-            .help("Restore modsettings.lsx from the most recent backup to recover your load order")
+            .help("Restore the last successfully saved load order")
         }
 
         if case .viewSEStatus = warning.suggestedAction {

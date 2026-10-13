@@ -286,6 +286,7 @@ struct ModUpdatePlanView: View {
 
             HStack {
                 Button("Cancel", role: .cancel) { appState.cancelPendingModUpdate() }
+                    .disabled(appState.isUpdatingMod)
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Install Update") {

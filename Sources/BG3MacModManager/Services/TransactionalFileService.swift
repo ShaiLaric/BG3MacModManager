@@ -55,18 +55,21 @@ enum TransactionalFileService {
     @discardableResult
     static func replaceFiles(
         _ replacements: [Replacement],
-        fileManager: FileManager = .default
+        removing removals: [URL] = [],
+        fileManager: FileManager = .default,
+        finalize: () throws -> Void = {}
     ) throws -> Result {
         let actionable = replacements.filter {
             !identifiesSameFile($0.source, $0.destination)
         }
-        guard !actionable.isEmpty else {
+        guard !actionable.isEmpty || !removals.isEmpty else {
+            try finalize()
             return Result(changedDestinations: [], replacedDestinations: [])
         }
 
         var destinationPaths = Set<String>()
-        for replacement in actionable {
-            let path = replacement.destination.standardizedFileURL.path
+        for destination in actionable.map(\.destination) + removals {
+            let path = destination.standardizedFileURL.path
             guard destinationPaths.insert(path).inserted else {
                 throw TransactionError.duplicateDestination(path)
             }
@@ -74,12 +77,13 @@ enum TransactionalFileService {
 
         struct StagedReplacement {
             let destination: URL
-            let staged: URL
+            let staged: URL?
             let rollback: URL?
             let destinationExisted: Bool
         }
 
         var stagedReplacements: [StagedReplacement] = []
+        var temporaryFiles: [URL] = []
         var committedCount = 0
         var rollbackCopiesToPreserve = Set<URL>()
 
@@ -90,12 +94,8 @@ enum TransactionalFileService {
         }
 
         defer {
-            for item in stagedReplacements {
-                try? fileManager.removeItem(at: item.staged)
-                if let rollback = item.rollback,
-                   !rollbackCopiesToPreserve.contains(rollback) {
-                    try? fileManager.removeItem(at: rollback)
-                }
+            for url in temporaryFiles where !rollbackCopiesToPreserve.contains(url) {
+                try? fileManager.removeItem(at: url)
             }
         }
 
@@ -112,6 +112,7 @@ enum TransactionalFileService {
             try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
 
             let staged = temporarySibling(of: replacement.destination, role: "staged")
+            temporaryFiles.append(staged)
             try fileManager.copyItem(at: replacement.source, to: staged)
 
             let stagedValues = try staged.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
@@ -124,6 +125,7 @@ enum TransactionalFileService {
             let rollback: URL?
             if destinationExisted {
                 let rollbackURL = temporarySibling(of: replacement.destination, role: "rollback")
+                temporaryFiles.append(rollbackURL)
                 try fileManager.copyItem(at: replacement.destination, to: rollbackURL)
                 rollback = rollbackURL
             } else {
@@ -138,20 +140,33 @@ enum TransactionalFileService {
             ))
         }
 
+        for destination in removals where fileManager.fileExists(atPath: destination.path) {
+            let rollback = temporarySibling(of: destination, role: "rollback")
+            temporaryFiles.append(rollback)
+            try fileManager.copyItem(at: destination, to: rollback)
+            stagedReplacements.append(StagedReplacement(
+                destination: destination, staged: nil, rollback: rollback, destinationExisted: true
+            ))
+        }
+
         do {
             for item in stagedReplacements {
-                if item.destinationExisted {
+                if item.staged == nil {
+                    try fileManager.removeItem(at: item.destination)
+                } else if item.destinationExisted {
                     _ = try fileManager.replaceItemAt(
                         item.destination,
-                        withItemAt: item.staged,
+                        withItemAt: item.staged!,
                         backupItemName: nil,
                         options: []
                     )
                 } else {
-                    try fileManager.moveItem(at: item.staged, to: item.destination)
+                    try fileManager.moveItem(at: item.staged!, to: item.destination)
                 }
                 committedCount += 1
             }
+            // Verification and persistence participate in the same rollback boundary.
+            try finalize()
         } catch {
             // Roll back only the destinations that were already committed, in reverse order.
             for item in stagedReplacements.prefix(committedCount).reversed() {
@@ -172,7 +187,12 @@ enum TransactionalFileService {
                         rollbackCopiesToPreserve.insert(rollback)
                     }
                 } else {
-                    try? fileManager.removeItem(at: item.destination)
+                    do {
+                        try fileManager.removeItem(at: item.destination)
+                    } catch {
+                        // A failed removal leaves the new file visible; report incomplete rollback.
+                        rollbackCopiesToPreserve.insert(item.destination)
+                    }
                 }
             }
             if !rollbackCopiesToPreserve.isEmpty {

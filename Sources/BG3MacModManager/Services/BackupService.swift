@@ -45,7 +45,7 @@ final class BackupService {
 
         let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        let filename = "modsettings-\(timestamp).lsx"
+        let filename = "modsettings-\(timestamp)-\(UUID().uuidString).lsx"
         let destination = backupsDirectory.appendingPathComponent(filename)
 
         try copyBackup(from: source, to: destination)
@@ -68,18 +68,18 @@ final class BackupService {
 
         return lsxFiles.compactMap { url -> Backup? in
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  let date = attrs[.modificationDate] as? Date,
+                  let modified = attrs[.modificationDate] as? Date,
                   let size = attrs[.size] as? Int else {
                 return nil
             }
-            return Backup(id: url.lastPathComponent, url: url, date: date, fileSize: size)
+            return Backup(id: url.lastPathComponent, url: url, date: backupDate(from: url) ?? modified, fileSize: size)
         }.sorted { $0.date > $1.date }
     }
 
     // MARK: - Restore
 
     /// Restore modsettings.lsx from a backup.
-    func restore(backup: Backup) throws {
+    func restore(backup: Backup, finalize: () throws -> Void = {}) throws {
         let destination = modSettingsURL
         let destinationExisted = FileManager.default.fileExists(atPath: destination.path)
         let wasLocked = destinationExisted && isModSettingsLocked()
@@ -103,9 +103,14 @@ final class BackupService {
             try copyBackup(from: destination, to: safetyBackup)
         }
 
+        // A legacy backup may still be immutable. Restore from an unlocked temporary
+        // copy so its flags cannot lock the live file before verification/persistence.
+        let staged = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".lsx")
+        defer { try? FileManager.default.removeItem(at: staged) }
+        try copyBackup(from: backup.url, to: staged)
         try TransactionalFileService.replaceFiles([
-            .init(source: backup.url, destination: destination),
-        ])
+            .init(source: staged, destination: destination),
+        ], finalize: finalize)
     }
 
     // MARK: - Delete
@@ -118,6 +123,7 @@ final class BackupService {
 
     /// Delete all backups older than the given number of days.
     func pruneBackups(olderThanDays days: Int = 30) throws {
+        guard days > 0 else { return }
         let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
         let backups = try listBackups()
 
@@ -130,6 +136,19 @@ final class BackupService {
         try FileManager.default.copyItem(at: source, to: destination)
         // copyItem preserves the live file's lock. Only the backup should be unlocked.
         try unlockBackup(at: destination)
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: destination.path)
+    }
+
+    /// Old copies inherited the live file's mtime; their filename records the backup time.
+    private func backupDate(from url: URL) -> Date? {
+        let name = url.deletingPathExtension().lastPathComponent
+        guard name.hasPrefix("modsettings-"), name.count >= 32 else { return nil }
+        let stamp = String(name.dropFirst(12).prefix(20))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss'Z'"
+        return formatter.date(from: stamp.uppercased())
     }
 
     private func unlockBackup(at url: URL) throws {

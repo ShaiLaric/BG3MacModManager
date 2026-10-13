@@ -119,14 +119,14 @@ struct ContentView: View {
             "External modsettings.lsx Change Detected",
             isPresented: $appState.showExternalChangeAlert
         ) {
-            Button("Restore from Backup") {
-                Task { await appState.restoreFromLatestBackup() }
+            Button("Restore Last Saved Order") {
+                Task { await appState.restoreLastSavedLoadOrder() }
             }
             Button("Keep Current", role: .cancel) {
                 appState.showExternalChangeAlert = false
             }
         } message: {
-            Text("The modsettings.lsx file has been modified outside this app (possibly by the game). Would you like to restore your last saved load order from backup?")
+            Text("The modsettings.lsx file has been modified outside this app (possibly by the game). Would you like to restore your last successfully saved load order?")
         }
         .alert(
             "Activate Imported Mods?",
