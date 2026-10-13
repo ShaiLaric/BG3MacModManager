@@ -48,7 +48,7 @@ final class BackupService {
         let filename = "modsettings-\(timestamp).lsx"
         let destination = backupsDirectory.appendingPathComponent(filename)
 
-        try FileManager.default.copyItem(at: source, to: destination)
+        try copyBackup(from: source, to: destination)
 
         let attrs = try FileManager.default.attributesOfItem(atPath: destination.path)
         let size = (attrs[.size] as? Int) ?? 0
@@ -100,7 +100,7 @@ final class BackupService {
             let safetyBackup = backupsDirectory.appendingPathComponent(
                 "pre-restore-\(UUID().uuidString).lsx"
             )
-            try FileManager.default.copyItem(at: destination, to: safetyBackup)
+            try copyBackup(from: destination, to: safetyBackup)
         }
 
         try TransactionalFileService.replaceFiles([
@@ -112,6 +112,7 @@ final class BackupService {
 
     /// Delete a specific backup.
     func delete(backup: Backup) throws {
+        try unlockBackup(at: backup.url)
         try FileManager.default.removeItem(at: backup.url)
     }
 
@@ -121,7 +122,30 @@ final class BackupService {
         let backups = try listBackups()
 
         for backup in backups where backup.date < cutoff {
-            try? FileManager.default.removeItem(at: backup.url)
+            try delete(backup: backup)
+        }
+    }
+
+    private func copyBackup(from source: URL, to destination: URL) throws {
+        try FileManager.default.copyItem(at: source, to: destination)
+        // copyItem preserves the live file's lock. Only the backup should be unlocked.
+        try unlockBackup(at: destination)
+    }
+
+    private func unlockBackup(at url: URL) throws {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [
+                NSFilePathErrorKey: url.path,
+            ])
+        }
+        guard info.st_flags & UInt32(UF_IMMUTABLE) != 0 else { return }
+
+        // Preserve other flags and never follow a backup symlink to the live file.
+        guard lchflags(url.path, info.st_flags & ~UInt32(UF_IMMUTABLE)) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [
+                NSFilePathErrorKey: url.path,
+            ])
         }
     }
 

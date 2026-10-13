@@ -66,7 +66,12 @@ struct SettingsView: View {
 
                 Button("Clean Old Backups") {
                     guard backupRetentionDays > 0 else { return }
-                    try? appState.backupService.pruneBackups(olderThanDays: backupRetentionDays)
+                    do {
+                        try appState.backupService.pruneBackups(olderThanDays: backupRetentionDays)
+                    } catch {
+                        appState.errorMessage = error.localizedDescription
+                        appState.showError = true
+                    }
                     Task { await appState.refreshBackups() }
                 }
                 .help("Delete backups older than the retention period")
