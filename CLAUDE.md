@@ -118,7 +118,7 @@ Prioritized feature and UX improvements organized by tier. Each item includes a 
 |---|-------|-------|--------|-------------|-----------|
 | 4.1 | Dependency Auto-Sort Mode | S–M | **Done** | One-click "safe reorder" using existing dependency graph (topological sort) plus category heuristics. Wraps existing `ModValidationService` logic into a single user action. | `AppState.swift`, `ModValidationService.swift`, `ModListView.swift` |
 | 4.2 | Diagnostics Bundle Export | S | | One-click package of mod list, settings, warnings, validation results, and logs into a ZIP for bug reports/support. Extends existing `TextExportService` and uses `ZIPFoundation`. | New `DiagnosticsExportService.swift`, `TextExportService.swift`, `ContentView.swift` |
-| 4.3 | Import Health Report | S–M | | After ZIP/PAK import, show missing dependencies, duplicates, SE requirements, and suggested fixes. Surfaces existing `ModValidationService` checks at import time. Reuses `ImportSummaryView` patterns. | `AppState.swift`, `ModValidationService.swift`, `ImportSummaryView.swift` |
+| 4.3 | Import Health Report | S–M | **Done** | After ZIP/PAK import, show missing dependencies, duplicates, SE requirements, and suggested fixes. Surfaces existing `ModValidationService` checks at import time. Reuses `ImportSummaryView` patterns. | `AppState.swift`, `ModValidationService.swift`, `ImportSummaryView.swift` |
 | 4.4 | Mod Update Dashboard | M | **Done** | Nexus version dashboard, per-version ignore and per-mod disable controls, browser acquisition, transactional archive installation, durable history, and rollback. | `NexusAPIService.swift`, `NexusUpdateInfo.swift`, `NexusUpdatePreferenceService.swift`, `ModUpdatesView.swift`, `AppState.swift`, `SettingsView.swift` |
 | 4.5 | Drag-Drop Archive Intake | M | | Drop ZIP/PAK anywhere in app to queue import with duplicate/version resolution. Uses SwiftUI `.onDrop` and existing import pipeline. | `ContentView.swift`, `AppState.swift`, `ArchiveService.swift`, `ModDiscoveryService.swift` |
 | 4.6 | Conflict Detector with File-Level Diff | M–L | | Inspect overlapping files across `.pak` mods and show which mod wins by load order. Extends existing `PakReader` to enumerate and cross-reference file listings. Start with file-level overlap detection before content diffing. Subsumes/extends 3.4. | `PakReader.swift`, new `ConflictDetectorService.swift`, `ModListView.swift`, `ModDetailView.swift` |
@@ -149,7 +149,7 @@ Short "done means" definitions for remaining backlog items.
 **4.3 – Import Health Report**
 - After PAK/ZIP import, modal sheet shows: missing dependencies, duplicate mods, SE requirements, suggested fixes
 - Each issue has a severity icon (critical/warning/info)
-- User can dismiss and proceed or cancel import
+- User can activate new mods as one undoable action or keep them inactive; installed files are retained. Duplicate and Script Extender followups open after the report dismisses.
 - Tests verify report generation for mods with known dependency gaps
 
 **4.4 – Mod Update Dashboard**
@@ -207,3 +207,11 @@ Items marked ~~strikethrough~~ are complete.
 - Settings shows recovery storage usage and explicit cleanup controls; backup rows reveal exact files; Script Extender logs read a bounded tail off the main actor.
 - Nexus credential migration occurs at app startup only when a legacy plaintext value exists. Unit tests inject credentials and mock network responses, with no Keychain access.
 - Local validation: 352 tests pass and strict concurrency builds without warnings. Existing Swift build caches are reused because disk space is limited.
+
+### Import health report — Done
+
+- Successful imports and replacements open ImportHealthView, with physical imported filenames, dependency gaps, duplicate PAKs, Script Extender requirements, metadata and ordering findings, and partial-import errors.
+- Checks preview using the imported mods alongside the current order and exclude unrelated existing warnings. Active missing-PAK placeholders do not satisfy a dependency.
+- The review replaces the activation-only alert. Activation is one undoable action; Keep New Mods Inactive retains installed files. Tool followups wait for dismissal to avoid competing sheets, and location switches/imports are blocked while reviewing.
+- Tests cover report generation, replacements, UUID casing, missing dependencies, Script Extender deployment, duplicates, activation/undo, and tool presentation timing.
+- Validation: 364 tests pass; strict concurrency builds without warnings. Universal build 5 is signed, notarized, stapled, and installed in ~/Applications. Native demo ZIP import completed, but visual report verification was interrupted by SkyComputerUseService crashing (the app remained running).

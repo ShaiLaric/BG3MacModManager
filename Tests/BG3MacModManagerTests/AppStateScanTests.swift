@@ -26,6 +26,9 @@ final class AppStateScanTests: XCTestCase {
         XCTAssertEqual(state.activeMods.map(\.uuid), ["a"])
         XCTAssertEqual(state.inactiveMods.map(\.uuid), ["b"])
         XCTAssertTrue(state.hasUnsavedChanges)
+        XCTAssertNotNil(state.importHealthReport)
+        XCTAssertFalse(state.canChangeLocations)
+        state.finishImportHealthReview(activate: false)
         XCTAssertTrue(state.canChangeLocations)
     }
 

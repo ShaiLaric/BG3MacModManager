@@ -128,22 +128,10 @@ struct ContentView: View {
         } message: {
             Text("The modsettings.lsx file has been modified outside this app (possibly by the game). Would you like to restore your last successfully saved load order?")
         }
-        .alert(
-            "Activate Imported Mods?",
-            isPresented: $appState.showImportActivation
-        ) {
-            Button("Activate All") {
-                for mod in appState.lastImportedMods {
-                    appState.activateMod(mod)
-                }
-                appState.lastImportedMods = []
-            }
-            Button("Keep Inactive", role: .cancel) {
-                appState.lastImportedMods = []
-            }
-        } message: {
-            let names = appState.lastImportedMods.map(\.name).joined(separator: ", ")
-            Text("\(appState.lastImportedMods.count) new mod(s) imported: \(names)\n\nWould you like to add them to your active load order?")
+        .sheet(item: $appState.importHealthReport, onDismiss: {
+            appState.completeImportHealthDismissal()
+        }) { _ in
+            ImportHealthView().environmentObject(appState)
         }
         .sheet(isPresented: $appState.showModImportPicker) {
             ModFilePickerView(

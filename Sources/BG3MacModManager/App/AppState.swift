@@ -64,11 +64,9 @@ final class AppState: ObservableObject {
     /// Import progress state.
     @Published var isImporting: Bool = false
 
-    /// Mods that were newly imported in the last import operation (for post-import activation prompt).
-    @Published var lastImportedMods: [ModInfo] = []
-
-    /// Whether to show the post-import activation prompt.
-    @Published var showImportActivation: Bool = false
+    /// Post-import findings and explicit activation choices.
+    @Published var importHealthReport: ImportHealthReport?
+    private var importHealthFollowup: String?
 
     /// Whether to show the custom mod import file picker.
     @Published var showModImportPicker: Bool = false
@@ -212,7 +210,7 @@ final class AppState: ObservableObject {
     /// is running. Changing a location then would rebuild the services out
     /// from under it, so the Settings location controls are disabled.
     var canChangeLocations: Bool {
-        pendingModUpdatePlan == nil && !filesystemMutationInProgress && !(isLoading || isImporting || isExporting || isUpdatingMod
+        pendingModUpdatePlan == nil && importHealthReport == nil && !filesystemMutationInProgress && !(isLoading || isImporting || isExporting || isUpdatingMod
           || isCheckingForUpdates || isScanningSaveGames || isCheckingReadiness)
     }
 
@@ -1221,6 +1219,10 @@ final class AppState: ObservableObject {
     /// Import multiple mod files at once (for drag-and-drop or multi-select file picker).
     /// Tracks all new mods across the batch and prompts for activation once at the end.
     func importMods(from urls: [URL]) async {
+        guard importHealthReport == nil else {
+            statusMessage = "Finish the current import review before importing more files"
+            return
+        }
         guard beginFilesystemMutation() else { return }
         defer { filesystemMutationInProgress = false }
         isImporting = true
@@ -1232,7 +1234,7 @@ final class AppState: ObservableObject {
             importer.importMods(from: urls, to: modsFolder)
         }.value
 
-        if !importResult.errors.isEmpty {
+        if importResult.importedCount == 0, !importResult.errors.isEmpty {
             errorMessage = importResult.errors.joined(separator: "\n")
             showError = true
         }
@@ -1245,6 +1247,7 @@ final class AppState: ObservableObject {
         }
 
         let newMods: [ModInfo]
+        let importedMods: [ModInfo]
         do {
             // Importing changes the files on disk, but it must not reload activation state from
             // modsettings.lsx: the in-memory load order may contain unsaved user changes.
@@ -1264,7 +1267,11 @@ final class AppState: ObservableObject {
             activeMods = merged.active.map { inferCategory(for: $0) }
             inactiveMods = merged.inactive.map { inferCategory(for: $0) }
             hasUnsavedChanges = merged.hasUnsavedChanges
-            await refreshDuplicateGroups()
+            let physicalMods = await refreshDuplicateGroups(showResolver: false)
+            let importedNames = Set(importResult.importedFilenames.map { $0.lowercased() })
+            importedMods = physicalMods.filter {
+                importedNames.contains(($0.pakFileName ?? "").lowercased())
+            }
 
             let newUUIDs = Set(merged.newMods.map(\.uuid))
             newMods = inactiveMods.filter { newUUIDs.contains($0.uuid) }
@@ -1280,10 +1287,45 @@ final class AppState: ObservableObject {
             statusMessage = "Imported \(importResult.importedCount) file(s)"
         }
 
-        if !newMods.isEmpty {
-            lastImportedMods = newMods
-            showImportActivation = true
+        importHealthReport = ImportHealthService().report(
+            importedMods: importedMods.isEmpty ? newMods : importedMods,
+            activationCandidates: newMods,
+            activeMods: activeMods,
+            inactiveMods: inactiveMods,
+            duplicateGroups: duplicateGroups,
+            seStatus: seService.checkStatus(),
+            loadOrderRules: loadOrderRules,
+            replacedFileCount: importResult.replacedFilenames.count,
+            importErrors: importResult.errors
+        )
+    }
+
+    /// Activation is one undoable action; the import itself has already installed files.
+    func finishImportHealthReview(activate: Bool, followup: String? = nil) {
+        guard let report = importHealthReport else { return }
+        if activate {
+            let ids = Set(report.activationCandidates.map { ModIdentity.comparisonKey($0.uuid) })
+            let candidates = inactiveMods.filter { ids.contains(ModIdentity.comparisonKey($0.uuid)) }
+            if !candidates.isEmpty {
+                saveSnapshot()
+                activeMods += candidates
+                inactiveMods.removeAll { ids.contains(ModIdentity.comparisonKey($0.uuid)) }
+                hasUnsavedChanges = true
+                runValidation()
+                statusMessage = "Activated \(candidates.count) imported mod(s); save when ready"
+            }
         }
+        importHealthFollowup = followup
+        importHealthReport = nil
+    }
+
+    func completeImportHealthDismissal() {
+        if importHealthFollowup == "duplicates" {
+            showDuplicateResolver = !duplicateGroups.isEmpty
+        } else if let destination = importHealthFollowup {
+            navigateToSidebarItem = destination
+        }
+        importHealthFollowup = nil
     }
 
     // MARK: - Extract Mod
@@ -1647,14 +1689,15 @@ final class AppState: ObservableObject {
         Task { await refreshDuplicateGroups() }
     }
 
-    private func refreshDuplicateGroups() async {
+    @discardableResult
+    private func refreshDuplicateGroups(showResolver: Bool = true) async -> [ModInfo] {
         do {
             let service = discoveryService
             let generation = locationsGeneration
             let physicalMods = try await Task.detached(priority: .userInitiated) {
                 try service.discoverMods()
             }.value
-            guard generation == locationsGeneration else { return }
+            guard generation == locationsGeneration else { return [] }
             duplicateGroups = Dictionary(grouping: physicalMods) {
                 ModIdentity.comparisonKey($0.uuid)
             }.values
@@ -1665,9 +1708,11 @@ final class AppState: ObservableObject {
                     ) == .orderedAscending
                 } }
                 .sorted { ($0.first?.name ?? "") < ($1.first?.name ?? "") }
-            showDuplicateResolver = !duplicateGroups.isEmpty
+            showDuplicateResolver = showResolver && !duplicateGroups.isEmpty
+            return physicalMods
         } catch {
             showError(error)
+            return []
         }
     }
 

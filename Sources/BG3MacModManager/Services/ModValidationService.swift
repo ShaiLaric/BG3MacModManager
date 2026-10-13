@@ -36,6 +36,56 @@ final class ModValidationService {
         return warnings.sorted { $0.severity > $1.severity }
     }
 
+    /// Pure import preview: check affected mods even when they are still inactive, and use
+    /// physical duplicate groups rather than the canonical UI list. No filesystem checks.
+    func validateImport(
+        importedMods: [ModInfo],
+        activationCandidates: [ModInfo],
+        activeMods: [ModInfo],
+        inactiveMods: [ModInfo],
+        duplicateGroups: [[ModInfo]],
+        seStatus: ScriptExtenderService.SEStatus?,
+        loadOrderRules: [LoadOrderRule] = []
+    ) -> [ModWarning] {
+        let importedIDs = Set(importedMods.map { ModIdentity.comparisonKey($0.uuid) })
+        let activeIDs = Set(activeMods.map { ModIdentity.comparisonKey($0.uuid) })
+        var prospectiveActive = activeMods
+        var previewIDs = activeIDs
+        for mod in importedMods + activationCandidates {
+            if previewIDs.insert(ModIdentity.comparisonKey(mod.uuid)).inserted { prospectiveActive.append(mod) }
+        }
+        let prospectiveIDs = Set(prospectiveActive.map { ModIdentity.comparisonKey($0.uuid) })
+        let prospectiveInactive = inactiveMods.filter { !prospectiveIDs.contains(ModIdentity.comparisonKey($0.uuid)) }
+        // Imported duplicate copies can be absent from the canonical prospective list.
+        // Evaluate their metadata too, while keeping one representative per UUID for order checks.
+        let orderedChecks = checkDependencyLoadOrder(activeMods: prospectiveActive)
+            + checkCircularDependencies(activeMods: prospectiveActive)
+            + checkConflictingMods(activeMods: prospectiveActive)
+            + checkPhantomMods(activeMods: prospectiveActive)
+            + checkLoadOrderRules(activeMods: prospectiveActive, rules: loadOrderRules)
+        let importedChecks = checkMissingDependencies(
+            activeMods: importedMods + prospectiveActive.filter { $0.metadataSource != .modSettings },
+            inactiveMods: prospectiveInactive
+        ) + checkNoMetadataMods(activeMods: importedMods, inactiveMods: [])
+        var findings = (orderedChecks + importedChecks).filter {
+            !$0.affectedModUUIDs.map(ModIdentity.comparisonKey).filter(importedIDs.contains).isEmpty
+        }
+        let seMods = importedMods.filter(\.requiresScriptExtender)
+        findings += checkScriptExtenderRequirements(activeMods: seMods, seStatus: seStatus)
+        for group in duplicateGroups where group.contains(where: { importedIDs.contains(ModIdentity.comparisonKey($0.uuid)) }) {
+            findings += checkDuplicateUUIDs(activeMods: group, inactiveMods: [])
+        }
+        var seen = Set<String>()
+        findings = findings.filter {
+            seen.insert("\($0.category.rawValue)|\($0.message)|\($0.detail)|\($0.affectedModUUIDs.sorted().joined(separator: ","))").inserted
+        }
+        return findings.sorted {
+            if $0.severity != $1.severity { return $0.severity > $1.severity }
+            if $0.category != $1.category { return $0.category.rawValue < $1.category.rawValue }
+            return $0.message < $1.message
+        }
+    }
+
     /// Validate before saving modsettings.lsx. Returns only warning+ severity issues.
     func validateForSave(
         activeMods: [ModInfo],
@@ -88,7 +138,7 @@ final class ModValidationService {
         var uuidGroups: [String: [ModInfo]] = [:]
 
         for mod in allMods {
-            uuidGroups[mod.uuid, default: []].append(mod)
+            uuidGroups[ModIdentity.comparisonKey(mod.uuid), default: []].append(mod)
         }
 
         return uuidGroups.compactMap { uuid, mods -> ModWarning? in
@@ -107,17 +157,18 @@ final class ModValidationService {
 
     /// Check for missing dependencies among active mods.
     private func checkMissingDependencies(activeMods: [ModInfo], inactiveMods: [ModInfo]) -> [ModWarning] {
-        let activeUUIDs = Set(activeMods.map(\.uuid))
-        let inactiveUUIDs = Set(inactiveMods.map(\.uuid))
+        let activeUUIDs = Set(activeMods.map { ModIdentity.comparisonKey($0.uuid) })
+        let inactiveUUIDs = Set(inactiveMods.map { ModIdentity.comparisonKey($0.uuid) })
         var warnings: [ModWarning] = []
 
         for mod in activeMods where !mod.isBasicGameModule {
             for dep in mod.dependencies {
-                guard !Constants.builtInModuleUUIDs.contains(dep.uuid) else { continue }
+                let depID = ModIdentity.comparisonKey(dep.uuid)
+                guard !Constants.builtInModuleUUIDs.contains(depID) else { continue }
 
-                if !activeUUIDs.contains(dep.uuid) {
+                if !activeUUIDs.contains(depID) {
                     let depName = dep.name.isEmpty ? dep.uuid : dep.name
-                    let canActivate = inactiveUUIDs.contains(dep.uuid)
+                    let canActivate = inactiveUUIDs.contains(depID)
                     warnings.append(ModWarning(
                         severity: .warning,
                         category: .missingDependency,

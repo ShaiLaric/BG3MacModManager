@@ -16,6 +16,7 @@ struct ModImportService: ModImporting {
 
     struct Result: Sendable {
         var importedCount = 0
+        var importedFilenames: [String] = []
         var replacedFilenames: [String] = []
         var alreadyPresentFilenames: [String] = []
         var errors: [String] = []
@@ -60,6 +61,7 @@ struct ModImportService: ModImporting {
                         result.alreadyPresentFilenames.append(url.lastPathComponent)
                     } else {
                         result.importedCount += 1
+                        result.importedFilenames.append(url.lastPathComponent)
                         if replacement.replacedDestinations.contains(destination) {
                             result.replacedFilenames.append(url.lastPathComponent)
                         }
@@ -68,8 +70,9 @@ struct ModImportService: ModImporting {
                     pathExtension: ext,
                     fullFilename: url.lastPathComponent
                 ) != nil {
-                    let replaced = try importArchive(url, to: modsFolder)
-                    result.replacedFilenames.append(contentsOf: replaced)
+                    let imported = try importArchive(url, to: modsFolder)
+                    result.replacedFilenames.append(contentsOf: imported.replacedDestinations.filter { $0.pathExtension.lowercased() == "pak" }.map(\.lastPathComponent))
+                    result.importedFilenames.append(contentsOf: imported.changedDestinations.filter { $0.pathExtension.lowercased() == "pak" }.map(\.lastPathComponent))
                     result.importedCount += 1
                 } else {
                     throw ArchiveService.ArchiveError.unsupportedFormat(ext)
@@ -81,7 +84,7 @@ struct ModImportService: ModImporting {
         return result
     }
 
-    private func importArchive(_ archiveURL: URL, to modsFolder: URL) throws -> [String] {
+    private func importArchive(_ archiveURL: URL, to modsFolder: URL) throws -> TransactionalFileService.Result {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -133,10 +136,7 @@ struct ModImportService: ModImporting {
             }
         }
         removals.append(modsFolder.appendingPathComponent("info.json"))
-        let result = try install(replacements, removing: removals)
-        return result.replacedDestinations
-            .filter { $0.pathExtension.lowercased() == "pak" }
-            .map(\.lastPathComponent)
+        return try install(replacements, removing: removals)
     }
 
     private func install(

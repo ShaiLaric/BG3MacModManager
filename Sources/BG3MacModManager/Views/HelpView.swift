@@ -542,7 +542,12 @@ struct HelpView: View {
             helpText("""
             When importing archives (.zip, .tar, etc.), the app automatically extracts all .pak \
             files and their companion info.json files into the Mods folder. After import, you are \
-            prompted to activate the newly imported mods. PAKs are validated before installation. \
+            shown an Import Health Report before choosing whether to activate the new mods. \
+            The report checks missing or inactive dependencies, duplicate files, Script Extender \
+            requirements, metadata, and ordering issues. Choose Activate New Mods or Keep New Mods \
+            Inactive; installed files are retained either way. Review Duplicates and View Script \
+            Extender open the relevant tools. Replacements also receive a report. \
+            PAKs are validated before installation. \
             Replaced PAKs and metadata are retained in ImportBackups; use Settings > Paths > \
             Show Import Copies to find them. ZIP and tar extraction have size and entry limits.
             """)
